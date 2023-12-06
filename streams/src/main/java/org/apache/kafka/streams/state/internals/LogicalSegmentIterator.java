@@ -31,9 +31,13 @@ public class LogicalSegmentIterator implements VersionedRecordIterator {
     private final Long fromTime;
     private final Long toTime;
     private final ResultOrder order;
+    // stores the raw value of the latestValueStore when latestValueStore is the current segment
     private byte[] currentRawSegmentValue;
+    // stores the deserialized value of the current segment (when current segment is one of the old segments)
     private RocksDBVersionedStoreSegmentValueFormatter.SegmentValue currentDeserializedSegmentValue;
+    // current segment minTimestamp (when current segment is not the latestValueStore)
     private long minTimestamp;
+    // current segment nextTimestamp (when current segment is not the latestValueStore)
     private long nextTimestamp;
     private volatile boolean open = true;
 
@@ -69,16 +73,18 @@ public class LogicalSegmentIterator implements VersionedRecordIterator {
         if (!open) {
             throw new IllegalStateException("The iterator is out of scope.");
         }
-//        return currentDeserializedSegmentValue != null || currentRawSegmentValue != null || (maybeFillCurrentSegmentValue() && hasAnyRelevantRecord());
-        if (currentDeserializedSegmentValue == null && currentRawSegmentValue == null && !segmentIterator.hasNext()) {
-            return false;
-        }
         boolean hasNextRecord = false;
         while ((currentDeserializedSegmentValue != null || currentRawSegmentValue != null || segmentIterator.hasNext()) && !hasNextRecord) {
-            if (currentDeserializedSegmentValue == null && currentRawSegmentValue == null) {
-                maybeFillCurrentSegmentValue();
+            boolean hasSegmentValue = currentDeserializedSegmentValue != null || currentRawSegmentValue != null;
+            if (!hasSegmentValue) {
+                hasSegmentValue = maybeFillCurrentSegmentValue();
             }
-            hasNextRecord = hasAnyRelevantRecord();
+            if (hasSegmentValue) {
+                hasNextRecord = hasAnyRelevantRecord();
+                if (!hasNextRecord) {
+                    prepareToFetchNextSegment();
+                }
+            }
         }
         return hasNextRecord;
     }
@@ -91,40 +97,16 @@ public class LogicalSegmentIterator implements VersionedRecordIterator {
         throw new NoSuchElementException();
     }
 
-    private Object getNextRecord() {
-        VersionedRecord nextRecord = null;
-        if (currentRawSegmentValue != null) { // this is the latestValueStore
-            final long recordTimestamp = RocksDBVersionedStore.LatestValueFormatter.getTimestamp(currentRawSegmentValue);
-            if (recordTimestamp <= toTime) {
-                final byte[] value = RocksDBVersionedStore.LatestValueFormatter.getValue(currentRawSegmentValue);
-                // latest value satisfies timestamp bound
-                nextRecord = new VersionedRecord<>(value, recordTimestamp);
-            }
-        } else {
-            RocksDBVersionedStoreSegmentValueFormatter.SegmentValue.SegmentSearchResult currentRecord = currentDeserializedSegmentValue.find(fromTime, toTime, order, true);
-            if (currentRecord != null) {
-                nextRecord = new VersionedRecord<>(currentRecord.value(), currentRecord.validFrom(), currentRecord.validTo());
-            }
-        }
-        // no relevant record could be found in the segment
-        if (currentRawSegmentValue != null || nextRecord == null || !hasSegmentMoreRelevantRecords(nextRecord.timestamp(), Long.parseLong(nextRecord.validTo().get().toString()))) {
-            prepareToFetchNextSegment();
-        }
-        return nextRecord;
-    }
-
-    private boolean hasSegmentMoreRelevantRecords(final long currentValidFrom, final long currentValidTo) {
-        final boolean isCurrentOutsideTimeRange = (order.equals(ResultOrder.ASCENDING) && (currentValidTo > toTime || nextTimestamp == currentValidTo))
-                || (!order.equals(ResultOrder.ASCENDING) && (currentValidFrom < fromTime || minTimestamp == currentValidFrom));
-        return !isCurrentOutsideTimeRange;
-    }
-
     private void prepareToFetchNextSegment() {
         this.currentRawSegmentValue = null;
         this.currentDeserializedSegmentValue = null;
         this.minTimestamp = this.nextTimestamp = -1;
     }
 
+    /**
+     * Fills currentRawSegmentValue (for the latestValueStore) or currentDeserializedSegmentValue (for older segments) only if
+     * segmentIterator.hasNext() and the segment has records with the query specified key
+     */
     private boolean maybeFillCurrentSegmentValue() {
         while (segmentIterator.hasNext()) {
             final LogicalKeyValueSegment segment = segmentIterator.next();
@@ -154,6 +136,9 @@ public class LogicalSegmentIterator implements VersionedRecordIterator {
         return false;
     }
 
+    /**
+     * Checks whether current segment has any record in query specified time range
+     */
     private boolean hasAnyRelevantRecord() {
         if (currentRawSegmentValue != null) { // this is the latestValueStore
             final long recordTimestamp = RocksDBVersionedStore.LatestValueFormatter.getTimestamp(currentRawSegmentValue);
@@ -162,6 +147,34 @@ public class LogicalSegmentIterator implements VersionedRecordIterator {
         } else {
             return currentDeserializedSegmentValue.find(fromTime, toTime, order, false) != null;
         }
+    }
+
+    private Object getNextRecord() {
+        VersionedRecord nextRecord = null;
+        if (currentRawSegmentValue != null) { // this is the latestValueStore
+            final long recordTimestamp = RocksDBVersionedStore.LatestValueFormatter.getTimestamp(currentRawSegmentValue);
+            if (recordTimestamp <= toTime) {
+                final byte[] value = RocksDBVersionedStore.LatestValueFormatter.getValue(currentRawSegmentValue);
+                // latest value satisfies timestamp bound
+                nextRecord = new VersionedRecord<>(value, recordTimestamp);
+            }
+        } else {
+            RocksDBVersionedStoreSegmentValueFormatter.SegmentValue.SegmentSearchResult currentRecord = currentDeserializedSegmentValue.find(fromTime, toTime, order, true);
+            if (currentRecord != null) {
+                nextRecord = new VersionedRecord<>(currentRecord.value(), currentRecord.validFrom(), currentRecord.validTo());
+            }
+        }
+        // no relevant record can be found in the segment
+        if (currentRawSegmentValue != null || nextRecord == null || !canSegmentHaveMoreRelevantRecords(nextRecord.timestamp(), Long.parseLong(nextRecord.validTo().get().toString()))) {
+            prepareToFetchNextSegment();
+        }
+        return nextRecord;
+    }
+
+    private boolean canSegmentHaveMoreRelevantRecords(final long currentValidFrom, final long currentValidTo) {
+        final boolean isCurrentOutsideTimeRange = (order.equals(ResultOrder.ASCENDING) && (currentValidTo > toTime || nextTimestamp == currentValidTo))
+                                               || (!order.equals(ResultOrder.ASCENDING) && (currentValidFrom < fromTime || minTimestamp == currentValidFrom));
+        return !isCurrentOutsideTimeRange;
     }
 
     private void releaseSnapshot() {

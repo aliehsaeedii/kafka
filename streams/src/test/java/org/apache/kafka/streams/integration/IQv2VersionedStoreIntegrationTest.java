@@ -154,11 +154,11 @@ public class IQv2VersionedStoreIntegrationTest {
         // retrieve existing values in query defined time range
         shouldHandleMultiVersionedKeyQuery(Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[1] + 5)), Optional.of(Instant.now()),
                                            ResultOrder.ANY, 1, LAST_INDEX);
-        // there is no record in the query specified time range
+        // there is no record in the query specified time range (time range behind the oldest record timestamp)
         shouldVerifyGetNullForMultiVersionedKeyQuery(RECORD_KEY,
                                                      Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[0] - 100)), Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[0] - 50)),
                                                      ResultOrder.ANY);
-        // there is no record in the query specified time range even with retrieving results in ascending order
+        // there is no record in the query specified time range even with retrieving results in ascending order (time range behind the oldest record timestamp)
         shouldVerifyGetNullForMultiVersionedKeyQuery(RECORD_KEY,
                                                      Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[0] - 100)), Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[0] - 50)),
                                                      ResultOrder.ASCENDING);

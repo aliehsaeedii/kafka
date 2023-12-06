@@ -377,10 +377,14 @@ final class RocksDBVersionedStoreSegmentValueFormatter {
         @Override
         public SegmentSearchResult find(final long fromTime, final long toTime,
                                         final ResultOrder order, final boolean shouldIterate) {
+            // this segment does not have any record in query specified time range
+            if (toTime < minTimestamp || fromTime > nextTimestamp) {
+                return null;
+            }
             long currTimestamp = -1;
             long currNextTimestamp = -1;
 
-            int tempDeserIndex = deserIndex; // keep current deserIndex value to rest it if needed
+            int tempDeserIndex = deserIndex; // keep current deserIndex value to rest it, if needed
             int currentCumValueSize = deserIndex == -1 ? 0 : cumulativeValueSizes.get(deserIndex);
             deserIndex++;
             int currIndex = deserIndex;
@@ -414,7 +418,7 @@ final class RocksDBVersionedStoreSegmentValueFormatter {
                 cumulativeValueSizes.add(currIndex, currentCumValueSize);
                 currIndex++;
             }
-            // search in segment expected to find result but did not.
+            // search in segment expected to find result but did not
             return null;
         }
 
