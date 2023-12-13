@@ -49,6 +49,7 @@ import org.apache.kafka.streams.query.Query;
 import org.apache.kafka.streams.query.QueryConfig;
 import org.apache.kafka.streams.query.QueryResult;
 import org.apache.kafka.streams.query.ResultOrder;
+import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.VersionedKeyValueStore;
 import org.apache.kafka.streams.state.VersionedRecord;
 import org.apache.kafka.streams.state.VersionedRecordIterator;
@@ -268,7 +269,6 @@ public class RocksDBVersionedStore implements VersionedKeyValueStore<Bytes, byte
         return null;
     }
 
-    @SuppressWarnings("unchecked")
     VersionedRecordIterator<byte[]> get(final Bytes key, final long fromTimestamp, final long toTimestamp, final ResultOrder order) {
         validateStoreOpen();
 
@@ -291,6 +291,53 @@ public class RocksDBVersionedStore implements VersionedKeyValueStore<Bytes, byte
             }
             return new LogicalSegmentIterator(segments.listIterator(), key, fromTimestamp, toTimestamp, order);
         }
+    }
+
+    protected KeyValueIterator<Bytes, VersionedRecord<byte[]>> range(final Bytes fromKey, final Bytes toKey,
+                                                                     final long fromTimestamp, final long toTimestamp) {
+
+        validateStoreOpen();
+
+//        if (toTimestamp < observedStreamTime - historyRetention) {
+//            // history retention exceeded. we still check the latest value store in case the
+//            // latest record version satisfies the timestamp bound, in which case it should
+//            // still be returned (i.e., the latest record version per key never expires).
+//            return new LogicalSegmentIterator(Collections.singletonList(latestValueStore).listIterator(), key, fromTimestamp, toTimestamp, order);
+//        } else {
+        final List<LogicalKeyValueSegment> segments = Collections.synchronizedList(new ArrayList<>());
+
+        // add segment stores
+        // consider the search lower bound as -INF (LONG.MIN_VALUE) to find the record that has been inserted before the {@code fromTimestamp}
+        // but is still valid in query specified time interval.
+
+        segments.add(latestValueStore);
+        segments.addAll(segmentStores.segments(Long.MIN_VALUE, toTimestamp, false));
+
+        return new LogicalSegmentRangeIterator(segments.listIterator(), fromKey, toKey, fromTimestamp, toTimestamp);
+//        }
+    }
+
+    protected KeyValueIterator<Bytes, VersionedRecord<byte[]>> all(final long fromTimestamp, final long toTimestamp) {
+
+        validateStoreOpen();
+
+//        if (toTimestamp < observedStreamTime - historyRetention) {
+//            // history retention exceeded. we still check the latest value store in case the
+//            // latest record version satisfies the timestamp bound, in which case it should
+//            // still be returned (i.e., the latest record version per key never expires).
+//            return new LogicalSegmentIterator(Collections.singletonList(latestValueStore).listIterator(), key, fromTimestamp, toTimestamp, order);
+//        } else {
+        final List<LogicalKeyValueSegment> segments = Collections.synchronizedList(new ArrayList<>());
+
+        // add segment stores
+        // consider the search lower bound as -INF (LONG.MIN_VALUE) to find the record that has been inserted before the {@code fromTimestamp}
+        // but is still valid in query specified time interval.
+
+        segments.add(latestValueStore);
+        segments.addAll(segmentStores.segments(Long.MIN_VALUE, toTimestamp, false));
+
+        return new LogicalSegmentRangeIterator(segments.listIterator(), fromKey, toKey, fromTimestamp, toTimestamp);
+//        }
     }
 
     @Override

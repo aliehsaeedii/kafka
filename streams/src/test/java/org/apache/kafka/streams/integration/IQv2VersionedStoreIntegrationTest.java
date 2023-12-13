@@ -32,22 +32,27 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.Set;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.quota.ClientQuotaAlteration;
 import org.apache.kafka.common.serialization.IntegerDeserializer;
 import org.apache.kafka.common.serialization.IntegerSerializer;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.streams.KafkaStreams;
+import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.integration.utils.EmbeddedKafkaCluster;
 import org.apache.kafka.streams.integration.utils.IntegrationTestUtils;
 import org.apache.kafka.streams.kstream.Materialized;
 import org.apache.kafka.streams.query.MultiVersionedKeyQuery;
+import org.apache.kafka.streams.query.MultiVersionedRangeQuery;
 import org.apache.kafka.streams.query.Position;
 import org.apache.kafka.streams.query.PositionBound;
 import org.apache.kafka.streams.query.QueryResult;
@@ -55,6 +60,7 @@ import org.apache.kafka.streams.query.ResultOrder;
 import org.apache.kafka.streams.query.StateQueryRequest;
 import org.apache.kafka.streams.query.StateQueryResult;
 import org.apache.kafka.streams.query.VersionedKeyQuery;
+import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.Stores;
 import org.apache.kafka.streams.state.VersionedRecordIterator;
 import org.apache.kafka.streams.state.VersionedRecord;
@@ -74,8 +80,9 @@ public class IQv2VersionedStoreIntegrationTest {
     private static final Duration HISTORY_RETENTION = Duration.ofDays(1);
     private static final Duration SEGMENT_INTERVAL = Duration.ofHours(1);
 
-    private static final int RECORD_KEY = 2;
-    private static final int NON_EXISTING_KEY = 3;
+    private static final int FIRST_KEY = 0;
+    private static final Integer[] RECORD_KEYS = {1, 2, 3};
+    private static final int NON_EXISTING_KEY = 3333;
 
     private static final Instant BASE_TIMESTAMP = Instant.parse("2023-01-01T10:00:00.00Z");
     private static final Long BASE_TIMESTAMP_LONG = BASE_TIMESTAMP.getLong(ChronoField.INSTANT_SECONDS);
@@ -87,6 +94,7 @@ public class IQv2VersionedStoreIntegrationTest {
 
     public static final EmbeddedKafkaCluster CLUSTER = new EmbeddedKafkaCluster(NUM_BROKERS, Utils.mkProperties(Collections.singletonMap("auto.create.topics.enable", "true")));
 
+    public static int lastOffset;
     private KafkaStreams kafkaStreams;
 
     @BeforeClass
@@ -97,13 +105,20 @@ public class IQv2VersionedStoreIntegrationTest {
         producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, CLUSTER.bootstrapServers());
         producerProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, IntegerSerializer.class);
         producerProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, IntegerSerializer.class);
+        lastOffset = -1;
         try (final KafkaProducer<Integer, Integer> producer = new KafkaProducer<>(producerProps)) {
-            producer.send(new ProducerRecord<>(INPUT_TOPIC_NAME, 0,  RECORD_TIMESTAMPS[0], RECORD_KEY, RECORD_VALUES[0])).get();
-            producer.send(new ProducerRecord<>(INPUT_TOPIC_NAME, 0,  RECORD_TIMESTAMPS[1], RECORD_KEY, RECORD_VALUES[1])).get();
-            producer.send(new ProducerRecord<>(INPUT_TOPIC_NAME, 0,  RECORD_TIMESTAMPS[2], RECORD_KEY, RECORD_VALUES[2])).get();
-            producer.send(new ProducerRecord<>(INPUT_TOPIC_NAME, 0,  RECORD_TIMESTAMPS[3], RECORD_KEY, RECORD_VALUES[3])).get();
+            for (int j = 0; j < RECORD_VALUES.length; j++) {
+                producer.send(new ProducerRecord<>(INPUT_TOPIC_NAME, 0, RECORD_TIMESTAMPS[j], FIRST_KEY, RECORD_VALUES[j])).get();
+                lastOffset++;
+            }
+            for (final Integer recordKey : RECORD_KEYS) {
+                for (int j = 0; j < RECORD_VALUES.length; j++) {
+                    producer.send(new ProducerRecord<>(INPUT_TOPIC_NAME, 0, RECORD_TIMESTAMPS[j], recordKey, RECORD_VALUES[j])).get();
+                    lastOffset++;
+                }
+            }
         }
-        INPUT_POSITION.withComponent(INPUT_TOPIC_NAME, 0, 3);
+        INPUT_POSITION.withComponent(INPUT_TOPIC_NAME, 0, lastOffset);
     }
 
     @Before
@@ -142,7 +157,7 @@ public class IQv2VersionedStoreIntegrationTest {
         // retrieve the old value
         shouldHandleVersionedKeyQuery(Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[0])), RECORD_VALUES[0], RECORD_TIMESTAMPS[0], Optional.of(RECORD_TIMESTAMPS[1]));
         // there is no record for the provided timestamp
-        shouldVerifyGetNullForVersionedKeyQuery(RECORD_KEY, Instant.ofEpochMilli(RECORD_TIMESTAMPS[0] - 50));
+        shouldVerifyGetNullForVersionedKeyQuery(RECORD_KEYS[0], Instant.ofEpochMilli(RECORD_TIMESTAMPS[0] - 50));
         // there is no record with this key
         shouldVerifyGetNullForVersionedKeyQuery(NON_EXISTING_KEY, Instant.now());
 
@@ -155,11 +170,11 @@ public class IQv2VersionedStoreIntegrationTest {
         shouldHandleMultiVersionedKeyQuery(Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[1] + 5)), Optional.of(Instant.now()),
                                            ResultOrder.ANY, 1, LAST_INDEX);
         // there is no record in the query specified time range
-        shouldVerifyGetNullForMultiVersionedKeyQuery(RECORD_KEY,
+        shouldVerifyGetNullForMultiVersionedKeyQuery(RECORD_KEYS[0],
                                                      Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[0] - 100)), Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[0] - 50)),
                                                      ResultOrder.ANY);
         // there is no record in the query specified time range even retrieving results in ascending order
-        shouldVerifyGetNullForMultiVersionedKeyQuery(RECORD_KEY,
+        shouldVerifyGetNullForMultiVersionedKeyQuery(RECORD_KEYS[0],
                                                      Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[0] - 100)), Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[0] - 50)),
                                                      ResultOrder.ASCENDING);
         // there is no record with this key
@@ -167,15 +182,38 @@ public class IQv2VersionedStoreIntegrationTest {
         // there is no record with this key even retrieving results in ascending order
         shouldVerifyGetNullForMultiVersionedKeyQuery(NON_EXISTING_KEY, Optional.empty(), Optional.empty(), ResultOrder.ASCENDING);
         // test concurrent write while retrieving records
-        shouldHandleRaceCondition();
+        shouldHandleRaceConditionForMultiVersionedKeyQuery(FIRST_KEY, 0, LAST_INDEX);
+
+        /* Test Multi Versioned Range Queries */
+        shouldHandleMultiVersionedRangeQuery(0, RECORD_KEYS.length - 1, Optional.empty(), Optional.empty(), 0, LAST_INDEX);
+        shouldHandleMultiVersionedRangeQuery(1, RECORD_KEYS.length - 1, Optional.empty(), Optional.empty(), 0, LAST_INDEX);
+        shouldHandleMultiVersionedRangeQuery(0, RECORD_KEYS.length - 2, Optional.empty(), Optional.empty(), 0, LAST_INDEX);
+        shouldHandleMultiVersionedRangeQuery(0, RECORD_KEYS.length - 1,  Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[1])), Optional.empty(), 1, LAST_INDEX);
+        shouldHandleMultiVersionedRangeQuery(0, RECORD_KEYS.length - 1, Optional.empty(), Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[LAST_INDEX - 1])), 0, LAST_INDEX - 1);
+        shouldHandleMultiVersionedRangeQuery(1, RECORD_KEYS.length - 2,
+                Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[1])), Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[LAST_INDEX - 1])),
+                1, LAST_INDEX - 1);
+        shouldHandleMultiVersionedRangeQuery(0, RECORD_KEYS.length - 1,
+                Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[1])), Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[LAST_INDEX - 1])),
+                1, LAST_INDEX - 1);
+        shouldHandleMultiVersionedRangeQuery(1, RECORD_KEYS.length - 2,Optional.empty(), Optional.empty(), 0, LAST_INDEX);
+        // there is no record in the query specified time range
+        shouldVerifyGetNullForMultiVersionedRangeQuery(RECORD_KEYS[0], RECORD_KEYS[RECORD_KEYS.length - 1],
+                                                       Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[0] - 100)), Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[0] - 50)));
+        // there is no record with the specified key range
+        shouldVerifyGetNullForMultiVersionedRangeQuery(NON_EXISTING_KEY, NON_EXISTING_KEY + 1, Optional.empty(), Optional.empty());
+
+        // test concurrent write while retrieving records
+        shouldHandleRaceConditionForMultiVersionedRangeQuery(0, RECORD_KEYS.length - 1, 0, LAST_INDEX);
     }
+
 
     private void shouldHandleVersionedKeyQuery(final Optional<Instant> queryTimestamp,
                                                final Integer expectedValue,
                                                final Long expectedTimestamp,
                                                final Optional<Long> expectedValidToTime) {
 
-        final VersionedKeyQuery<Integer, Integer> query = defineQuery(RECORD_KEY, queryTimestamp);
+        final VersionedKeyQuery<Integer, Integer> query = defineQuery(RECORD_KEYS[0], queryTimestamp);
 
         final QueryResult<VersionedRecord<Integer>> queryResult = sendRequestAndReceiveResults(query, kafkaStreams);
 
@@ -206,7 +244,7 @@ public class IQv2VersionedStoreIntegrationTest {
     private void shouldHandleMultiVersionedKeyQuery(final Optional<Instant> fromTime, final Optional<Instant> toTime,
                                                     final ResultOrder order, final int expectedArrayLowerBound, final int expectedArrayUpperBound) {
 
-        final MultiVersionedKeyQuery<Integer, Integer> query = defineQuery(RECORD_KEY, fromTime, toTime, order);
+        final MultiVersionedKeyQuery<Integer, Integer> query = defineQuery(RECORD_KEYS[0], fromTime, toTime, order);
 
         final Map<Integer, QueryResult<VersionedRecordIterator<Integer>>> partitionResults = sendRequestAndReceiveResults(query, kafkaStreams);
 
@@ -252,15 +290,15 @@ public class IQv2VersionedStoreIntegrationTest {
      * This method updates a record value in an existing timestamp, while it is retrieving records.
      * Since IQv2 guarantees snapshot semantics, we expect that the old value is retrieved.
      */
-    private void shouldHandleRaceCondition() {
-        final MultiVersionedKeyQuery<Integer, Integer> query = defineQuery(RECORD_KEY, Optional.empty(), Optional.empty(), ResultOrder.ANY);
+    private void shouldHandleRaceConditionForMultiVersionedKeyQuery(final Integer key, final int expectedArrayLowerBound, final int expectedArrayUpperBound) {
+        final MultiVersionedKeyQuery<Integer, Integer> query = defineQuery(key, Optional.empty(), Optional.empty(), ResultOrder.ANY);
 
         final Map<Integer, QueryResult<VersionedRecordIterator<Integer>>> partitionResults = sendRequestAndReceiveResults(query, kafkaStreams);
 
         // verify results in two steps
         for (final Entry<Integer, QueryResult<VersionedRecordIterator<Integer>>> partitionResultsEntry : partitionResults.entrySet()) {
             try (final VersionedRecordIterator<Integer> iterator = partitionResultsEntry.getValue().getResult()) {
-                int i = LAST_INDEX;
+                int i = expectedArrayUpperBound;
                 int iteratorSize = 0;
 
                 // step 1:
@@ -282,7 +320,7 @@ public class IQv2VersionedStoreIntegrationTest {
                 }
 
                 // update the value of the oldest record
-                updateRecordValue();
+                updateRecordValue(key, RECORD_TIMESTAMPS[0]);
 
                 // step 2: continue reading records from through the already opened iterator
                 while (iterator.hasNext()) {
@@ -300,7 +338,157 @@ public class IQv2VersionedStoreIntegrationTest {
                 }
 
                 // The number of returned records by query is equal to expected number of records
-                assertThat(iteratorSize, equalTo(RECORD_NUMBER));
+                assertThat(iteratorSize, equalTo(expectedArrayUpperBound - expectedArrayLowerBound + 1));
+            }
+        }
+    }
+
+    private void shouldHandleMultiVersionedRangeQuery(final Integer lowerKeyBoundIndex, final Integer upperKeyBoundIndex,
+                                                      final Optional<Instant> fromTime, final Optional<Instant> toTime,
+                                                      final int expectedValueArrayLowerBound, final int expectedValueArrayUpperBound) {
+
+        MultiVersionedRangeQuery<Integer, Integer> query = defineQueryWithKeyIndices(lowerKeyBoundIndex, upperKeyBoundIndex, fromTime, toTime);
+
+        // send request and get the results
+        final StateQueryRequest<KeyValueIterator<Integer, VersionedRecord<Integer>>> request = StateQueryRequest.inStore(STORE_NAME).withQuery(query).withPositionBound(PositionBound.at(INPUT_POSITION));
+        final StateQueryResult<KeyValueIterator<Integer, VersionedRecord<Integer>>> result = IntegrationTestUtils.iqv2WaitForResult(kafkaStreams, request);
+
+        // verify results
+        final Map<Integer, QueryResult<KeyValueIterator<Integer, VersionedRecord<Integer>>>> partitionResults = result.getPartitionResults();
+        for (final Entry<Integer, QueryResult<KeyValueIterator<Integer, VersionedRecord<Integer>>>> partitionResultsEntry : partitionResults.entrySet()) {
+            verifyPartitionResult(partitionResultsEntry.getValue());
+            try (final KeyValueIterator<Integer, VersionedRecord<Integer>> iterator = partitionResultsEntry.getValue().getResult()) {
+                int i = expectedValueArrayUpperBound;
+                int j = lowerKeyBoundIndex;
+                int iteratorSize = 0;
+                // verify latest value store
+                if (expectedValueArrayUpperBound == LAST_INDEX) {
+                    while (iterator.hasNext()) {
+                        final KeyValue<Integer, VersionedRecord<Integer>> record = iterator.next();
+                        final Integer key = record.key;
+                        final Integer value = record.value.value();
+                        final Long timestamp = record.value.timestamp();
+                        final Optional<Long> validTo = record.value.validTo();
+
+//                    final Optional<Long> expectedValidTo = i < expectedArrayUpperBound ? Optional.of(RECORD_TIMESTAMPS[i + 1]) : Optional.empty();
+                        assertThat(key, is(RECORD_KEYS[j]));
+                        assertThat(value, is(RECORD_VALUES[i]));
+                        assertThat(timestamp, is(RECORD_TIMESTAMPS[i]));
+                        assertThat(validTo, is(Optional.empty()));
+//                    assertThat(queryResult.getExecutionInfo(), is(empty()));
+                        iteratorSize++;
+                        j++;
+                        if (j > upperKeyBoundIndex) {
+                            i = i - 1;
+                            j = lowerKeyBoundIndex;
+                            break;
+                        }
+                    }
+                }
+                // verify older segments
+                while (iterator.hasNext()) {
+                    final KeyValue<Integer, VersionedRecord<Integer>> record = iterator.next();
+                    final Integer key = record.key;
+                    final Integer value = record.value.value();
+                    final Long timestamp = record.value.timestamp();
+                    final Optional<Long> validTo = record.value.validTo();
+
+                    final Optional<Long> expectedValidTo = i < LAST_INDEX ? Optional.of(RECORD_TIMESTAMPS[i + 1]) : Optional.empty();
+                    assertThat(key, is(RECORD_KEYS[j]));
+                    assertThat(value, is(RECORD_VALUES[i]));
+                    assertThat(timestamp, is(RECORD_TIMESTAMPS[i]));
+                    assertThat(validTo, is(expectedValidTo));
+//                    assertThat(queryResult.getExecutionInfo(), is(empty()));
+                    iteratorSize++;
+                    i = i - 1;
+                    if (i == expectedValueArrayLowerBound - 1) {
+                        i = Math.min(LAST_INDEX - 1, expectedValueArrayUpperBound);
+                        j++;
+                    }
+                }
+                // The number of returned records by query is equal to expected number of records
+                assertThat(iteratorSize, equalTo((upperKeyBoundIndex - lowerKeyBoundIndex + 1) * (expectedValueArrayUpperBound - expectedValueArrayLowerBound + 1)));
+            }
+        }
+    }
+
+    private void shouldVerifyGetNullForMultiVersionedRangeQuery(final Integer fromKey, final Integer toKey, final Optional<Instant> fromTime, final Optional<Instant> toTime) {
+        final MultiVersionedRangeQuery<Integer, Integer> query = defineQuery(fromKey, toKey, fromTime, toTime);
+
+        Map<Integer, QueryResult<KeyValueIterator<Integer, VersionedRecord<Integer>>>> partitionResults = sendRequestAndReceiveResults(query, kafkaStreams);
+
+        // verify results
+        for (final Entry<Integer, QueryResult<KeyValueIterator<Integer, VersionedRecord<Integer>>>> partitionResultsEntry : partitionResults.entrySet()) {
+            try (final KeyValueIterator<Integer, VersionedRecord<Integer>> iterator = partitionResultsEntry.getValue().getResult()) {
+                assertFalse(iterator.hasNext());
+            }
+        }
+    }
+
+    private void shouldHandleRaceConditionForMultiVersionedRangeQuery(final Integer lowerKeyBoundIndex, final Integer upperKeyBoundIndex,
+                                                                      final int expectedArrayLowerBound, final int expectedArrayUpperBound) {
+        final MultiVersionedRangeQuery<Integer, Integer> query = defineQueryWithKeyIndices(lowerKeyBoundIndex, upperKeyBoundIndex, Optional.empty(), Optional.empty());
+
+        // send request and get the results
+        Map<Integer, QueryResult<KeyValueIterator<Integer, VersionedRecord<Integer>>>> partitionResults = sendRequestAndReceiveResults(query, kafkaStreams);
+
+
+
+        // verify results
+        for (final Entry<Integer, QueryResult<KeyValueIterator<Integer, VersionedRecord<Integer>>>> partitionResultsEntry : partitionResults.entrySet()) {
+            try (final KeyValueIterator<Integer, VersionedRecord<Integer>> iterator = partitionResultsEntry.getValue().getResult()) {
+                int i = expectedArrayUpperBound;
+                int j = lowerKeyBoundIndex;
+                int iteratorSize = 0;
+                // verify latest value store
+                while (iterator.hasNext()) {
+                    final KeyValue<Integer, VersionedRecord<Integer>> record = iterator.next();
+                    final Integer key = record.key;
+                    final Integer value = record.value.value();
+                    final Long timestamp = record.value.timestamp();
+                    final Optional<Long> validTo = record.value.validTo();
+
+                    final Optional<Long> expectedValidTo = Optional.empty();
+                    assertThat(key, is(RECORD_KEYS[j]));
+                    assertThat(value, is(RECORD_VALUES[i]));
+                    assertThat(timestamp, is(RECORD_TIMESTAMPS[i]));
+                    assertThat(validTo, is(expectedValidTo));
+                    iteratorSize++;
+                    j++;
+                    if (j > upperKeyBoundIndex) {
+                        i--;
+                        j = lowerKeyBoundIndex;
+                        break;
+                    }
+                    // update the corresponding value of the key = 3 in the latestValueStore (RECORD_TIMESTAMP[3])
+                    updateRecordValue(RECORD_KEYS[upperKeyBoundIndex], RECORD_TIMESTAMPS[3]);
+                }
+
+                // update the corresponding value of the key = 2 in the oldest segment (RECORD_TIMESTAMP[0])
+                updateRecordValue(RECORD_KEYS[lowerKeyBoundIndex], RECORD_TIMESTAMPS[0]);
+
+                // verify older segments
+                while (iterator.hasNext()) {
+                    final KeyValue<Integer, VersionedRecord<Integer>> record = iterator.next();
+                    final Integer key = record.key;
+                    final Integer value = record.value.value();
+                    final Long timestamp = record.value.timestamp();
+                    final Optional<Long> validTo = record.value.validTo();
+
+                    final Optional<Long> expectedValidTo = i < expectedArrayUpperBound ? Optional.of(RECORD_TIMESTAMPS[i + 1]) : Optional.empty();
+                    assertThat(key, is(RECORD_KEYS[j]));
+                    assertThat(value, is(RECORD_VALUES[i]));
+                    assertThat(timestamp, is(RECORD_TIMESTAMPS[i]));
+                    assertThat(validTo, is(expectedValidTo));
+                    iteratorSize++;
+                    i--;
+                    if (i == -1) {
+                        i = expectedArrayUpperBound - 1;
+                        j++;
+                    }
+                }
+                // The number of returned records by query is equal to expected number of records
+                assertThat(iteratorSize, equalTo((upperKeyBoundIndex - lowerKeyBoundIndex + 1) * (expectedArrayUpperBound - expectedArrayLowerBound + 1)));
             }
         }
     }
@@ -327,19 +515,54 @@ public class IQv2VersionedStoreIntegrationTest {
         return query;
     }
 
-    private static Map<Integer, QueryResult<VersionedRecordIterator<Integer>>> sendRequestAndReceiveResults(final MultiVersionedKeyQuery<Integer, Integer> query, final KafkaStreams kafkaStreams) {
-        final StateQueryRequest<VersionedRecordIterator<Integer>> request = StateQueryRequest.inStore(STORE_NAME).withQuery(query).withPositionBound(PositionBound.at(INPUT_POSITION));
-        final StateQueryResult<VersionedRecordIterator<Integer>> result = IntegrationTestUtils.iqv2WaitForResult(kafkaStreams, request);
-        return result.getPartitionResults();
+    private static MultiVersionedRangeQuery<Integer, Integer> defineQuery(final Integer fromKey, final Integer toKey, final Optional<Instant> fromTime, final Optional<Instant> toTime) {
+        MultiVersionedRangeQuery<Integer, Integer> query = MultiVersionedRangeQuery.withKeyRange(fromKey, toKey);
+        if (fromTime.isPresent()) {
+            query = query.fromTime(fromTime.get());
+        }
+        if (toTime.isPresent()) {
+            query = query.toTime(toTime.get());
+        }
+        return query;
     }
 
-    private static QueryResult<VersionedRecord<Integer>> sendRequestAndReceiveResults(final VersionedKeyQuery<Integer, Integer> query, final KafkaStreams kafkaStreams) {
+    private static MultiVersionedRangeQuery<Integer, Integer> defineQueryWithKeyIndices(final Integer lowerKeyBoundIndex, final Integer upperKeyBoundIndex, final Optional<Instant> fromTime, final Optional<Instant> toTime) {
+        return defineQuery(RECORD_KEYS[lowerKeyBoundIndex], RECORD_KEYS[upperKeyBoundIndex], fromTime, toTime);
+    }
+
+    private static QueryResult<VersionedRecord<Integer>> sendRequestAndReceiveResults
+            (final VersionedKeyQuery<Integer, Integer> query, final KafkaStreams kafkaStreams) {
         final StateQueryRequest<VersionedRecord<Integer>> request = StateQueryRequest.inStore(STORE_NAME).withQuery(query).withPositionBound(PositionBound.at(INPUT_POSITION));
         final StateQueryResult<VersionedRecord<Integer>> result = IntegrationTestUtils.iqv2WaitForResult(kafkaStreams, request);
         return result.getOnlyPartitionResult();
     }
 
-    private static void verifyPartitionResult(final QueryResult<VersionedRecordIterator<Integer>> result) {
+    private static Map<Integer, QueryResult<VersionedRecordIterator<Integer>>> sendRequestAndReceiveResults
+            (final MultiVersionedKeyQuery<Integer, Integer> query, final KafkaStreams kafkaStreams) {
+        final StateQueryRequest<VersionedRecordIterator<Integer>> request = StateQueryRequest.inStore(STORE_NAME).withQuery(query).withPositionBound(PositionBound.at(INPUT_POSITION));
+        final StateQueryResult<VersionedRecordIterator<Integer>> result = IntegrationTestUtils.iqv2WaitForResult(kafkaStreams, request);
+        return result.getPartitionResults();
+    }
+
+    private static Map<Integer, QueryResult<KeyValueIterator<Integer, VersionedRecord<Integer>>>> sendRequestAndReceiveResults
+            (final MultiVersionedRangeQuery<Integer, Integer> query, final KafkaStreams kafkaStreams) {
+        final StateQueryRequest<KeyValueIterator<Integer, VersionedRecord<Integer>>> request =
+                StateQueryRequest.inStore(STORE_NAME).withQuery(query).withPositionBound(PositionBound.at(INPUT_POSITION));
+        final StateQueryResult<KeyValueIterator<Integer, VersionedRecord<Integer>>> result = IntegrationTestUtils.iqv2WaitForResult(kafkaStreams, request);
+        return result.getPartitionResults();
+    }
+
+//    private static void verifyPartitionResult(final QueryResult<VersionedRecordIterator<Integer>> result) {
+//        assertThat(result.getExecutionInfo(), is(empty()));
+//        if (result.isFailure()) {
+//            throw new AssertionError(result.toString());
+//        }
+//        assertThat(result.isSuccess(), is(true));
+//        assertThrows(IllegalArgumentException.class, result::getFailureReason);
+//        assertThrows(IllegalArgumentException.class, result::getFailureMessage);
+//    }
+
+    private static void verifyPartitionResult(final QueryResult<?> result) {
         assertThat(result.getExecutionInfo(), is(empty()));
         if (result.isFailure()) {
             throw new AssertionError(result.toString());
@@ -349,32 +572,32 @@ public class IQv2VersionedStoreIntegrationTest {
         assertThrows(IllegalArgumentException.class, result::getFailureMessage);
     }
 
-    /**
-     * This method inserts a new value (999999) for the key in the oldest timestamp (RECORD_TIMESTAMPS[0]).
-     */
-    private static void updateRecordValue() {
+    // This method updates the corresponding value of the specified key to 999999 in the specified timestamp
+    private void updateRecordValue(final Integer key, final Long timestamp) {
         // update the record value at RECORD_TIMESTAMPS[0]
         final Properties producerProps = new Properties();
         producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, CLUSTER.bootstrapServers());
         producerProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, IntegerSerializer.class);
         producerProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, IntegerSerializer.class);
         try (final KafkaProducer<Integer, Integer> producer = new KafkaProducer<>(producerProps)) {
-            producer.send(new ProducerRecord<>(INPUT_TOPIC_NAME, 0, RECORD_TIMESTAMPS[0], RECORD_KEY, 999999));
+            producer.send(new ProducerRecord<>(INPUT_TOPIC_NAME, 0, timestamp, key, 999999));
+            lastOffset++;
         }
-        INPUT_POSITION.withComponent(INPUT_TOPIC_NAME, 0, 4);
-        assertThat(INPUT_POSITION, equalTo(Position.emptyPosition().withComponent(INPUT_TOPIC_NAME, 0, 4)));
+        INPUT_POSITION.withComponent(INPUT_TOPIC_NAME, 0, lastOffset);
+        assertThat(INPUT_POSITION, equalTo(Position.emptyPosition().withComponent(INPUT_TOPIC_NAME, 0, lastOffset)));
 
         // make sure that the new value is picked up by the store
         final Properties consumerProps = new Properties();
         consumerProps.setProperty(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, CLUSTER.bootstrapServers());
         consumerProps.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, IntegerDeserializer.class.getName());
         consumerProps.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, IntegerDeserializer.class.getName());
-        consumerProps.setProperty(ConsumerConfig.GROUP_ID_CONFIG, "foo");
+        consumerProps.setProperty(ConsumerConfig.GROUP_ID_CONFIG, "foo" + lastOffset);
         consumerProps.setProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        try {
-            IntegrationTestUtils.waitUntilMinRecordsReceived(consumerProps, INPUT_TOPIC_NAME, RECORD_NUMBER + 1);
-        } catch (final Exception e) {
-            throw new RuntimeException(e);
+        try (KafkaConsumer<Integer, Integer> consumer = new KafkaConsumer<>(consumerProps)) {
+            consumer.subscribe(Collections.singletonList(INPUT_TOPIC_NAME));
+            // the last record is the newly added one
+            assertThat(consumer.poll(Duration.ofMillis(10000)).count(), equalTo(lastOffset + 1));
+            consumer.close(Duration.ZERO);
         }
     }
 }

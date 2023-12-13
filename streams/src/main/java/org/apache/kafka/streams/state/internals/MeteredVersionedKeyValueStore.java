@@ -23,6 +23,7 @@ import static org.apache.kafka.streams.kstream.internals.WrappingNullableUtils.p
 import static org.apache.kafka.streams.processor.internals.metrics.StreamsMetricsImpl.maybeMeasureLatency;
 
 
+import java.security.InvalidParameterException;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
@@ -37,6 +38,7 @@ import org.apache.kafka.streams.processor.internals.ProcessorContextUtils;
 import org.apache.kafka.streams.processor.internals.SerdeGetter;
 import org.apache.kafka.streams.query.KeyQuery;
 import org.apache.kafka.streams.query.MultiVersionedKeyQuery;
+import org.apache.kafka.streams.query.MultiVersionedRangeQuery;
 import org.apache.kafka.streams.query.Position;
 import org.apache.kafka.streams.query.PositionBound;
 import org.apache.kafka.streams.query.Query;
@@ -46,6 +48,7 @@ import org.apache.kafka.streams.query.RangeQuery;
 import org.apache.kafka.streams.query.VersionedKeyQuery;
 import org.apache.kafka.streams.query.internals.InternalQueryResultUtil;
 import org.apache.kafka.streams.query.ResultOrder;
+import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.streams.state.StateSerdes;
 import org.apache.kafka.streams.state.TimestampedKeyValueStore;
@@ -120,6 +123,10 @@ public class MeteredVersionedKeyValueStore<K, V>
                 mkEntry(
                     MultiVersionedKeyQuery.class,
                     (query, positionBound, config, store) -> runMultiVersionedKeyQuery(query, positionBound, config)
+                ),
+                mkEntry(
+                    MultiVersionedRangeQuery.class,
+                    (query, positionBound, config, store) -> runMultiVersionedRangeQuery(query, positionBound, config)
                 )
             );
 
@@ -267,6 +274,46 @@ public class MeteredVersionedKeyValueStore<K, V>
                         new MeteredMultiVersionedKeyQueryIterator<V>(rawResult.getResult(), StoreQueryUtils.getDeserializeValue(plainValueSerdes));
                 final QueryResult<MeteredMultiVersionedKeyQueryIterator<V>> typedQueryResult =
                         InternalQueryResultUtil.copyAndSubstituteDeserializedResult(rawResult, typedResult);
+                result = (QueryResult<R>) typedQueryResult;
+            } else {
+                // the generic type doesn't matter, since failed queries have no result set.
+                result = (QueryResult<R>) rawResult;
+            }
+            return result;
+        }
+
+        @SuppressWarnings("unchecked")
+        private <R> QueryResult<R> runMultiVersionedRangeQuery(final Query<R> query, final PositionBound positionBound, final QueryConfig config) {
+            final QueryResult<R> result;
+            final MultiVersionedRangeQuery<K, V> typedQuery = (MultiVersionedRangeQuery<K, V>) query;
+
+            MultiVersionedRangeQuery<Bytes, byte[]> rawRangeQuery;
+
+            if (typedQuery.lowerKeyBound().isPresent() && typedQuery.upperKeyBound().isPresent()) {
+                rawRangeQuery = MultiVersionedRangeQuery.withKeyRange(keyBytes(typedQuery.lowerKeyBound().get()), keyBytes(typedQuery.upperKeyBound().get()));
+            } else if (typedQuery.lowerKeyBound().isPresent()) {
+                rawRangeQuery = MultiVersionedRangeQuery.withLowerKeyBound(keyBytes(typedQuery.lowerKeyBound().get()));
+            } else if (typedQuery.upperKeyBound().isPresent()) {
+                rawRangeQuery = MultiVersionedRangeQuery.withUpperKeyBound(keyBytes(typedQuery.upperKeyBound().get()));
+            } else {
+                rawRangeQuery = MultiVersionedRangeQuery.allKeys();
+            }
+
+            final Instant fromTime = typedQuery.fromTime().isPresent() ? typedQuery.fromTime().get() : Instant.ofEpochMilli(Long.MIN_VALUE);
+            final Instant toTime = typedQuery.toTime().isPresent() ? typedQuery.toTime().get() : Instant.ofEpochMilli(Long.MAX_VALUE);
+            if (fromTime.compareTo(toTime) > 0) {
+                throw new InvalidParameterException("The `fromTime` timestamp must be smaller than the `toTime` timestamp.");
+            }
+            rawRangeQuery = rawRangeQuery.fromTime(fromTime).toTime(toTime);
+
+
+
+            final QueryResult<KeyValueIterator<Bytes, VersionedRecord<byte[]>>> rawResult = wrapped().query(rawRangeQuery, positionBound, config);
+            if (rawResult.isSuccess()) {
+                final KeyValueIterator<K, VersionedRecord<V>> resultIterator =
+                        new MeteredMultiVersionedRangeQueryIterator<K, V>(rawResult.getResult(), StoreQueryUtils.getDeserializeValue(plainValueSerdes), plainValueSerdes);
+                final QueryResult<KeyValueIterator<K, VersionedRecord<V>>> typedQueryResult =
+                        InternalQueryResultUtil.copyAndSubstituteDeserializedResult(rawResult, resultIterator);
                 result = (QueryResult<R>) typedQueryResult;
             } else {
                 // the generic type doesn't matter, since failed queries have no result set.

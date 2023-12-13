@@ -28,6 +28,7 @@ import org.apache.kafka.streams.processor.api.RecordMetadata;
 import org.apache.kafka.streams.query.FailureReason;
 import org.apache.kafka.streams.query.KeyQuery;
 import org.apache.kafka.streams.query.MultiVersionedKeyQuery;
+import org.apache.kafka.streams.query.MultiVersionedRangeQuery;
 import org.apache.kafka.streams.query.Position;
 import org.apache.kafka.streams.query.PositionBound;
 import org.apache.kafka.streams.query.Query;
@@ -103,6 +104,10 @@ public final class StoreQueryUtils {
             mkEntry(
                 MultiVersionedKeyQuery.class,
                 StoreQueryUtils::runMultiVersionedKeyQuery
+            ),
+            mkEntry(
+                MultiVersionedRangeQuery.class,
+                StoreQueryUtils::runMultiVersionedRangeQuery
             )
         );
 
@@ -396,6 +401,45 @@ public final class StoreQueryUtils {
                                                   rawKeyQuery.fromTime().get().toEpochMilli(),
                                                   rawKeyQuery.toTime().get().toEpochMilli(),
                                                   rawKeyQuery.resultOrder());
+                return (QueryResult<R>) QueryResult.forResult(segmentIterator);
+            } catch (final Exception e) {
+                final String message = parseStoreException(e, store, query);
+                return QueryResult.forFailure(FailureReason.STORE_EXCEPTION, message);
+            }
+        } else {
+            return QueryResult.forUnknownQueryType(query, store);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <R> QueryResult<R> runMultiVersionedRangeQuery(final Query<R> query,
+                                                                  final PositionBound positionBound,
+                                                                  final QueryConfig config,
+                                                                  final StateStore store) {
+        if (store instanceof VersionedKeyValueStore) {
+            final RocksDBVersionedStore rocksDBVersionedStore = (RocksDBVersionedStore) store;
+            final MultiVersionedRangeQuery<Bytes, byte[]> rawRangeQuery = (MultiVersionedRangeQuery<Bytes, byte[]>) query;
+            try {
+                final KeyValueIterator<Bytes, VersionedRecord<byte[]>> segmentIterator;
+                final boolean isLowerKeyBound = rawRangeQuery.lowerKeyBound().isPresent();
+                final boolean isUpperKeyBound = rawRangeQuery.upperKeyBound().isPresent();
+                final long fromTime = rawRangeQuery.fromTime().get().toEpochMilli();
+                final long toTime = rawRangeQuery.toTime().get().toEpochMilli();
+
+                if (!isLowerKeyBound) {
+                    if (!isUpperKeyBound) {
+                        segmentIterator = rocksDBVersionedStore.(fromTime, toTime);;
+                    } else {
+                        segmentIterator = null;
+                    }
+                } else {
+                    final Bytes lowerKeyBound = rawRangeQuery.lowerKeyBound().get();
+                    if (!isUpperKeyBound) {
+                        segmentIterator = null;
+                    } else {
+                        segmentIterator = rocksDBVersionedStore.range(lowerKeyBound, rawRangeQuery.upperKeyBound().get(), fromTime, toTime);
+                    }
+                }
                 return (QueryResult<R>) QueryResult.forResult(segmentIterator);
             } catch (final Exception e) {
                 final String message = parseStoreException(e, store, query);
