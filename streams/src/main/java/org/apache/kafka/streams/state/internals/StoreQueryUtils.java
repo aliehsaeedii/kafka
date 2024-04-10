@@ -426,20 +426,22 @@ public final class StoreQueryUtils {
                 final long fromTime = rawRangeQuery.fromTime().get().toEpochMilli();
                 final long toTime = rawRangeQuery.toTime().get().toEpochMilli();
 
-                if (!isLowerKeyBound) {
-                    if (!isUpperKeyBound) {
-                        segmentIterator = rocksDBVersionedStore.(fromTime, toTime);;
-                    } else {
-                        segmentIterator = null;
-                    }
-                } else {
-                    final Bytes lowerKeyBound = rawRangeQuery.lowerKeyBound().get();
-                    if (!isUpperKeyBound) {
-                        segmentIterator = null;
-                    } else {
-                        segmentIterator = rocksDBVersionedStore.range(lowerKeyBound, rawRangeQuery.upperKeyBound().get(), fromTime, toTime);
-                    }
-                }
+//                if (!isLowerKeyBound) {
+//                    if (!isUpperKeyBound) {
+//                        segmentIterator = rocksDBVersionedStore.all(fromTime, toTime);
+//                    } else {
+//                        segmentIterator = null;
+//                    }
+//                } else {
+//                    final Bytes lowerKeyBound = rawRangeQuery.lowerKeyBound().get();
+//                    if (!isUpperKeyBound) {
+//                        segmentIterator = null;
+//                    } else {
+//                        segmentIterator = rocksDBVersionedStore.range(lowerKeyBound, rawRangeQuery.upperKeyBound().get(), fromTime, toTime);
+//                    }
+//                }
+                segmentIterator = rocksDBVersionedStore.range(rawRangeQuery.lowerKeyBound().orElse(null), rawRangeQuery.upperKeyBound().orElse(null), fromTime, toTime);
+
                 return (QueryResult<R>) QueryResult.forResult(segmentIterator);
             } catch (final Exception e) {
                 final String message = parseStoreException(e, store, query);

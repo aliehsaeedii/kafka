@@ -317,28 +317,28 @@ public class RocksDBVersionedStore implements VersionedKeyValueStore<Bytes, byte
 //        }
     }
 
-    protected KeyValueIterator<Bytes, VersionedRecord<byte[]>> all(final long fromTimestamp, final long toTimestamp) {
-
-        validateStoreOpen();
-
-//        if (toTimestamp < observedStreamTime - historyRetention) {
-//            // history retention exceeded. we still check the latest value store in case the
-//            // latest record version satisfies the timestamp bound, in which case it should
-//            // still be returned (i.e., the latest record version per key never expires).
-//            return new LogicalSegmentIterator(Collections.singletonList(latestValueStore).listIterator(), key, fromTimestamp, toTimestamp, order);
-//        } else {
-        final List<LogicalKeyValueSegment> segments = Collections.synchronizedList(new ArrayList<>());
-
-        // add segment stores
-        // consider the search lower bound as -INF (LONG.MIN_VALUE) to find the record that has been inserted before the {@code fromTimestamp}
-        // but is still valid in query specified time interval.
-
-        segments.add(latestValueStore);
-        segments.addAll(segmentStores.segments(Long.MIN_VALUE, toTimestamp, false));
-
-        return new LogicalSegmentRangeIterator(segments.listIterator(), fromKey, toKey, fromTimestamp, toTimestamp);
-//        }
-    }
+//    protected KeyValueIterator<Bytes, VersionedRecord<byte[]>> all(final long fromTimestamp, final long toTimestamp) {
+//
+//        validateStoreOpen();
+//
+////        if (toTimestamp < observedStreamTime - historyRetention) {
+////            // history retention exceeded. we still check the latest value store in case the
+////            // latest record version satisfies the timestamp bound, in which case it should
+////            // still be returned (i.e., the latest record version per key never expires).
+////            return new LogicalSegmentIterator(Collections.singletonList(latestValueStore).listIterator(), key, fromTimestamp, toTimestamp, order);
+////        } else {
+//        final List<LogicalKeyValueSegment> segments = Collections.synchronizedList(new ArrayList<>());
+//
+//        // add segment stores
+//        // consider the search lower bound as -INF (LONG.MIN_VALUE) to find the record that has been inserted before the {@code fromTimestamp}
+//        // but is still valid in query specified time interval.
+//
+//        segments.add(latestValueStore);
+//        segments.addAll(segmentStores.segments(Long.MIN_VALUE, toTimestamp, false));
+//
+//        return new LogicalSegmentRangeIterator(segments.listIterator(), null, null, fromTimestamp, toTimestamp);
+////        }
+//    }
 
     @Override
     public String name() {

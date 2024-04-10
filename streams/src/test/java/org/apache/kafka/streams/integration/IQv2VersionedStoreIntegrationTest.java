@@ -185,26 +185,33 @@ public class IQv2VersionedStoreIntegrationTest {
         shouldHandleRaceConditionForMultiVersionedKeyQuery(FIRST_KEY, 0, LAST_INDEX);
 
         /* Test Multi Versioned Range Queries */
-        shouldHandleMultiVersionedRangeQuery(0, RECORD_KEYS.length - 1, Optional.empty(), Optional.empty(), 0, LAST_INDEX);
-        shouldHandleMultiVersionedRangeQuery(1, RECORD_KEYS.length - 1, Optional.empty(), Optional.empty(), 0, LAST_INDEX);
-        shouldHandleMultiVersionedRangeQuery(0, RECORD_KEYS.length - 2, Optional.empty(), Optional.empty(), 0, LAST_INDEX);
-        shouldHandleMultiVersionedRangeQuery(0, RECORD_KEYS.length - 1,  Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[1])), Optional.empty(), 1, LAST_INDEX);
-        shouldHandleMultiVersionedRangeQuery(0, RECORD_KEYS.length - 1, Optional.empty(), Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[LAST_INDEX - 1])), 0, LAST_INDEX - 1);
-        shouldHandleMultiVersionedRangeQuery(1, RECORD_KEYS.length - 2,
+        shouldHandleMultiVersionedRangeQuery(Optional.of(0), Optional.of(RECORD_KEYS.length - 1), Optional.empty(), Optional.empty(), 0, LAST_INDEX, false);
+        shouldHandleMultiVersionedRangeQuery(Optional.of(0), Optional.of(RECORD_KEYS.length - 1), Optional.empty(), Optional.empty(), 0, LAST_INDEX, false);
+        shouldHandleMultiVersionedRangeQuery(Optional.of(1), Optional.of(RECORD_KEYS.length - 1), Optional.empty(), Optional.empty(), 0, LAST_INDEX, false);
+        shouldHandleMultiVersionedRangeQuery(Optional.of(0), Optional.of(RECORD_KEYS.length - 2), Optional.empty(), Optional.empty(), 0, LAST_INDEX, false);
+        shouldHandleMultiVersionedRangeQuery(Optional.of(0), Optional.of(RECORD_KEYS.length - 1),  Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[1])), Optional.empty(), 1, LAST_INDEX, false);
+        shouldHandleMultiVersionedRangeQuery(Optional.of(0), Optional.of(RECORD_KEYS.length - 1), Optional.empty(), Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[LAST_INDEX - 1])), 0, LAST_INDEX - 1, false);
+        shouldHandleMultiVersionedRangeQuery(Optional.of(1), Optional.of(RECORD_KEYS.length - 2),
                 Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[1])), Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[LAST_INDEX - 1])),
-                1, LAST_INDEX - 1);
-        shouldHandleMultiVersionedRangeQuery(0, RECORD_KEYS.length - 1,
+                1, LAST_INDEX - 1, false);
+        shouldHandleMultiVersionedRangeQuery(Optional.of(0), Optional.of(RECORD_KEYS.length - 1),
                 Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[1])), Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[LAST_INDEX - 1])),
-                1, LAST_INDEX - 1);
-        shouldHandleMultiVersionedRangeQuery(1, RECORD_KEYS.length - 2,Optional.empty(), Optional.empty(), 0, LAST_INDEX);
+                1, LAST_INDEX - 1, false);
+        shouldHandleMultiVersionedRangeQuery(Optional.of(1), Optional.of(RECORD_KEYS.length - 2),Optional.empty(), Optional.empty(), 0, LAST_INDEX, false);
+        // no lower
+        shouldHandleMultiVersionedRangeQuery(Optional.empty(), Optional.of(RECORD_KEYS.length - 2),Optional.empty(), Optional.empty(), 0, LAST_INDEX, true);
+//        // no upper
+//        shouldHandleMultiVersionedRangeQuery(Optional.of(1), Optional.empty(),Optional.empty(), Optional.empty(), 0, LAST_INDEX);
+//        // nothing
+//        shouldHandleMultiVersionedRangeQuery(Optional.empty(), Optional.empty(),Optional.empty(), Optional.empty(), 0, LAST_INDEX);
         // there is no record in the query specified time range
-        shouldVerifyGetNullForMultiVersionedRangeQuery(RECORD_KEYS[0], RECORD_KEYS[RECORD_KEYS.length - 1],
+        shouldVerifyGetNullForMultiVersionedRangeQuery(0, RECORD_KEYS.length - 1,
                                                        Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[0] - 100)), Optional.of(Instant.ofEpochMilli(RECORD_TIMESTAMPS[0] - 50)));
         // there is no record with the specified key range
         shouldVerifyGetNullForMultiVersionedRangeQuery(NON_EXISTING_KEY, NON_EXISTING_KEY + 1, Optional.empty(), Optional.empty());
 
         // test concurrent write while retrieving records
-        shouldHandleRaceConditionForMultiVersionedRangeQuery(0, RECORD_KEYS.length - 1, 0, LAST_INDEX);
+        shouldHandleRaceConditionForMultiVersionedRangeQuery(Optional.of(0), Optional.of(RECORD_KEYS.length - 1), 0, LAST_INDEX);
     }
 
 
@@ -343,23 +350,23 @@ public class IQv2VersionedStoreIntegrationTest {
         }
     }
 
-    private void shouldHandleMultiVersionedRangeQuery(final Integer lowerKeyBoundIndex, final Integer upperKeyBoundIndex,
+    private void shouldHandleMultiVersionedRangeQuery(final Optional<Integer> lowerKeyBoundIndex, final Optional<Integer> upperKeyBoundIndex,
                                                       final Optional<Instant> fromTime, final Optional<Instant> toTime,
-                                                      final int expectedValueArrayLowerBound, final int expectedValueArrayUpperBound) {
+                                                      final int expectedValueArrayLowerBound, final int expectedValueArrayUpperBound,
+                                                      final boolean isFirstRecordIncluded) {
 
-        MultiVersionedRangeQuery<Integer, Integer> query = defineQueryWithKeyIndices(lowerKeyBoundIndex, upperKeyBoundIndex, fromTime, toTime);
+        final MultiVersionedRangeQuery<Integer, Integer> query = defineQueryWithKeyIndices(lowerKeyBoundIndex, upperKeyBoundIndex, fromTime, toTime);
 
-        // send request and get the results
-        final StateQueryRequest<KeyValueIterator<Integer, VersionedRecord<Integer>>> request = StateQueryRequest.inStore(STORE_NAME).withQuery(query).withPositionBound(PositionBound.at(INPUT_POSITION));
-        final StateQueryResult<KeyValueIterator<Integer, VersionedRecord<Integer>>> result = IntegrationTestUtils.iqv2WaitForResult(kafkaStreams, request);
+        Map<Integer, QueryResult<KeyValueIterator<Integer, VersionedRecord<Integer>>>> partitionResults = sendRequestAndReceiveResults(query, kafkaStreams);
 
         // verify results
-        final Map<Integer, QueryResult<KeyValueIterator<Integer, VersionedRecord<Integer>>>> partitionResults = result.getPartitionResults();
+        final int lowerIndex = lowerKeyBoundIndex.orElse(0);
+        final int upperIndex = upperKeyBoundIndex.orElse(LAST_INDEX);
         for (final Entry<Integer, QueryResult<KeyValueIterator<Integer, VersionedRecord<Integer>>>> partitionResultsEntry : partitionResults.entrySet()) {
             verifyPartitionResult(partitionResultsEntry.getValue());
             try (final KeyValueIterator<Integer, VersionedRecord<Integer>> iterator = partitionResultsEntry.getValue().getResult()) {
                 int i = expectedValueArrayUpperBound;
-                int j = lowerKeyBoundIndex;
+                int j = lowerIndex;
                 int iteratorSize = 0;
                 // verify latest value store
                 if (expectedValueArrayUpperBound == LAST_INDEX) {
@@ -370,22 +377,42 @@ public class IQv2VersionedStoreIntegrationTest {
                         final Long timestamp = record.value.timestamp();
                         final Optional<Long> validTo = record.value.validTo();
 
-//                    final Optional<Long> expectedValidTo = i < expectedArrayUpperBound ? Optional.of(RECORD_TIMESTAMPS[i + 1]) : Optional.empty();
                         assertThat(key, is(RECORD_KEYS[j]));
                         assertThat(value, is(RECORD_VALUES[i]));
                         assertThat(timestamp, is(RECORD_TIMESTAMPS[i]));
                         assertThat(validTo, is(Optional.empty()));
-//                    assertThat(queryResult.getExecutionInfo(), is(empty()));
                         iteratorSize++;
                         j++;
-                        if (j > upperKeyBoundIndex) {
+                        if (j > upperIndex) {
                             i = i - 1;
-                            j = lowerKeyBoundIndex;
+                            j = lowerIndex;
                             break;
                         }
                     }
                 }
                 // verify older segments
+                if (isFirstRecordIncluded) {
+                    while (iterator.hasNext()) {
+                        final KeyValue<Integer, VersionedRecord<Integer>> record = iterator.next();
+                        final Integer key = record.key;
+                        final Integer value = record.value.value();
+                        final Long timestamp = record.value.timestamp();
+                        final Optional<Long> validTo = record.value.validTo();
+
+                        final Optional<Long> expectedValidTo = i < LAST_INDEX ? Optional.of(RECORD_TIMESTAMPS[i + 1]) : Optional.empty();
+                        assertThat(key, is(1));
+                        assertThat(value, is(RECORD_VALUES[i]));
+                        assertThat(timestamp, is(RECORD_TIMESTAMPS[i]));
+                        assertThat(validTo, is(expectedValidTo));
+//                    assertThat(queryResult.getExecutionInfo(), is(empty()));
+                        iteratorSize++;
+                        i = i - 1;
+                        if (i == expectedValueArrayLowerBound - 1) {
+                            i = Math.min(LAST_INDEX - 1, expectedValueArrayUpperBound);
+                            j++;
+                        }
+                    }
+                }
                 while (iterator.hasNext()) {
                     final KeyValue<Integer, VersionedRecord<Integer>> record = iterator.next();
                     final Integer key = record.key;
@@ -407,7 +434,7 @@ public class IQv2VersionedStoreIntegrationTest {
                     }
                 }
                 // The number of returned records by query is equal to expected number of records
-                assertThat(iteratorSize, equalTo((upperKeyBoundIndex - lowerKeyBoundIndex + 1) * (expectedValueArrayUpperBound - expectedValueArrayLowerBound + 1)));
+                assertThat(iteratorSize, equalTo((upperIndex - lowerIndex + 1) * (expectedValueArrayUpperBound - expectedValueArrayLowerBound + 1)));
             }
         }
     }
@@ -425,7 +452,7 @@ public class IQv2VersionedStoreIntegrationTest {
         }
     }
 
-    private void shouldHandleRaceConditionForMultiVersionedRangeQuery(final Integer lowerKeyBoundIndex, final Integer upperKeyBoundIndex,
+    private void shouldHandleRaceConditionForMultiVersionedRangeQuery(final Optional<Integer> lowerKeyBoundIndex, final Optional<Integer> upperKeyBoundIndex,
                                                                       final int expectedArrayLowerBound, final int expectedArrayUpperBound) {
         final MultiVersionedRangeQuery<Integer, Integer> query = defineQueryWithKeyIndices(lowerKeyBoundIndex, upperKeyBoundIndex, Optional.empty(), Optional.empty());
 
@@ -438,7 +465,7 @@ public class IQv2VersionedStoreIntegrationTest {
         for (final Entry<Integer, QueryResult<KeyValueIterator<Integer, VersionedRecord<Integer>>>> partitionResultsEntry : partitionResults.entrySet()) {
             try (final KeyValueIterator<Integer, VersionedRecord<Integer>> iterator = partitionResultsEntry.getValue().getResult()) {
                 int i = expectedArrayUpperBound;
-                int j = lowerKeyBoundIndex;
+                int j = lowerKeyBoundIndex.orElse(0);
                 int iteratorSize = 0;
                 // verify latest value store
                 while (iterator.hasNext()) {
@@ -455,17 +482,17 @@ public class IQv2VersionedStoreIntegrationTest {
                     assertThat(validTo, is(expectedValidTo));
                     iteratorSize++;
                     j++;
-                    if (j > upperKeyBoundIndex) {
+                    if (j > upperKeyBoundIndex.orElse(LAST_INDEX)) {
                         i--;
-                        j = lowerKeyBoundIndex;
+                        j = lowerKeyBoundIndex.orElse(0);
                         break;
                     }
                     // update the corresponding value of the key = 3 in the latestValueStore (RECORD_TIMESTAMP[3])
-                    updateRecordValue(RECORD_KEYS[upperKeyBoundIndex], RECORD_TIMESTAMPS[3]);
+                    updateRecordValue(RECORD_KEYS[upperKeyBoundIndex.orElse(LAST_INDEX)], RECORD_TIMESTAMPS[3]);
                 }
 
                 // update the corresponding value of the key = 2 in the oldest segment (RECORD_TIMESTAMP[0])
-                updateRecordValue(RECORD_KEYS[lowerKeyBoundIndex], RECORD_TIMESTAMPS[0]);
+                updateRecordValue(RECORD_KEYS[lowerKeyBoundIndex.orElse(0)], RECORD_TIMESTAMPS[0]);
 
                 // verify older segments
                 while (iterator.hasNext()) {
@@ -488,7 +515,7 @@ public class IQv2VersionedStoreIntegrationTest {
                     }
                 }
                 // The number of returned records by query is equal to expected number of records
-                assertThat(iteratorSize, equalTo((upperKeyBoundIndex - lowerKeyBoundIndex + 1) * (expectedArrayUpperBound - expectedArrayLowerBound + 1)));
+                assertThat(iteratorSize, equalTo((upperKeyBoundIndex.orElse(LAST_INDEX)- lowerKeyBoundIndex.orElse(0) + 1) * (expectedArrayUpperBound - expectedArrayLowerBound + 1)));
             }
         }
     }
@@ -515,8 +542,11 @@ public class IQv2VersionedStoreIntegrationTest {
         return query;
     }
 
-    private static MultiVersionedRangeQuery<Integer, Integer> defineQuery(final Integer fromKey, final Integer toKey, final Optional<Instant> fromTime, final Optional<Instant> toTime) {
+    private static MultiVersionedRangeQuery<Integer, Integer> defineQuery(final Integer fromKey, final Integer toKey,
+                                                                          final Optional<Instant> fromTime, final Optional<Instant> toTime) {
+
         MultiVersionedRangeQuery<Integer, Integer> query = MultiVersionedRangeQuery.withKeyRange(fromKey, toKey);
+
         if (fromTime.isPresent()) {
             query = query.fromTime(fromTime.get());
         }
@@ -526,8 +556,35 @@ public class IQv2VersionedStoreIntegrationTest {
         return query;
     }
 
-    private static MultiVersionedRangeQuery<Integer, Integer> defineQueryWithKeyIndices(final Integer lowerKeyBoundIndex, final Integer upperKeyBoundIndex, final Optional<Instant> fromTime, final Optional<Instant> toTime) {
-        return defineQuery(RECORD_KEYS[lowerKeyBoundIndex], RECORD_KEYS[upperKeyBoundIndex], fromTime, toTime);
+    private static MultiVersionedRangeQuery<Integer, Integer> defineQueryWithKeyIndices(final Optional<Integer> lowerKeyBoundIndex, final Optional<Integer> upperKeyBoundIndex,
+                                                                                        final Optional<Instant> fromTime, final Optional<Instant> toTime) {
+
+        MultiVersionedRangeQuery<Integer, Integer> query;
+
+        final boolean hasLowerKeyBound = lowerKeyBoundIndex.isPresent();
+        final boolean hasUpperKeyBound = upperKeyBoundIndex.isPresent();
+
+        if (!hasLowerKeyBound) {
+            if (!hasUpperKeyBound) {
+                query = MultiVersionedRangeQuery.allKeys();
+            } else {
+                query = MultiVersionedRangeQuery.withUpperKeyBound(RECORD_KEYS[upperKeyBoundIndex.get()]);
+            }
+        } else {
+            if (!hasUpperKeyBound) {
+                query = MultiVersionedRangeQuery.withLowerKeyBound(RECORD_KEYS[lowerKeyBoundIndex.get()]);
+            } else {
+                query = MultiVersionedRangeQuery.withKeyRange(RECORD_KEYS[lowerKeyBoundIndex.get()], RECORD_KEYS[upperKeyBoundIndex.get()]);
+            }
+        }
+
+        if (fromTime.isPresent()) {
+            query = query.fromTime(fromTime.get());
+        }
+        if (toTime.isPresent()) {
+            query = query.toTime(toTime.get());
+        }
+        return query;
     }
 
     private static QueryResult<VersionedRecord<Integer>> sendRequestAndReceiveResults
