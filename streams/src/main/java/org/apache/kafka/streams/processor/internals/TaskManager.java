@@ -1364,6 +1364,7 @@ public class TaskManager {
     private void releaseLockedUnassignedTaskDirectories() {
         final Iterator<TaskId> taskIdIterator = lockedTaskDirectories.iterator();
         final Map<TaskId, Task> allTasks = allTasks();
+        tasks.pendingTasksToInit().forEach(task -> allTasks.remove(task.id()));
         while (taskIdIterator.hasNext()) {
             final TaskId id = taskIdIterator.next();
             if (!allTasks.containsKey(id)) {
