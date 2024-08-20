@@ -103,7 +103,7 @@ public class CommonClientConfigs {
         "If provided, the backoff per client will increase exponentially for each failed request, up to this maximum. To prevent all clients from being synchronized upon retry, " +
         "a randomized jitter with a factor of 0.2 will be applied to the backoff, resulting in the backoff falling within a range between 20% below and 20% above the computed value. " +
         "If <code>retry.backoff.ms</code> is set to be higher than <code>retry.backoff.max.ms</code>, then <code>retry.backoff.max.ms</code> will be used as a constant backoff from the beginning without any exponential increase";
-    public static final Long DEFAULT_RETRY_BACKOFF_MAX_MS = 1000L;
+    public static final Long DEFAULT_RETRY_BACKOFF_MAX_MS = 10000L;
 
     public static final int RETRY_BACKOFF_EXP_BASE = 2;
     public static final double RETRY_BACKOFF_JITTER = 0.2;
