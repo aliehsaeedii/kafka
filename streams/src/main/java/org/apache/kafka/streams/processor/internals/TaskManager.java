@@ -1830,6 +1830,7 @@ public class TaskManager {
             }
 
             activeTask.addRecords(partition, records.records(partition));
+            activeTask.setNextOffsetsAndMetadata(records.nextOffsets());
         }
     }
 
