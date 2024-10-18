@@ -1006,8 +1006,9 @@ public class TaskManager {
                 task.initializeIfNeeded();
                 taskIdToBackoffRecord.remove(task.id());
                 stateUpdater.add(task);
+                log.info("Task {} got the lock", task.id());
             } else {
-                log.trace("Task {} is still not allowed to retry acquiring the state directory lock", task.id());
+                log.info("Task {} is still not allowed to retry acquiring the state directory lock", task.id());
                 tasks.addPendingTasksToInit(Collections.singleton(task));
             }
         } catch (final LockException lockException) {
