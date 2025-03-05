@@ -21,6 +21,8 @@ import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.coordinator.group.modern.share.ShareGroupConfig;
 import org.apache.kafka.coordinator.group.modern.share.ShareGroupConfigTest;
+import org.apache.kafka.coordinator.group.streams.StreamsGroupConfig;
+import org.apache.kafka.coordinator.group.streams.StreamsGroupConfigTest;
 
 import org.junit.jupiter.api.Test;
 
@@ -45,6 +47,11 @@ public class GroupConfigTest {
     private static final int SHARE_GROUP_RECORD_LOCK_DURATION_MS = 30000;
     private static final int SHARE_GROUP_MIN_RECORD_LOCK_DURATION_MS = 15000;
     private static final int SHARE_GROUP_MAX_RECORD_LOCK_DURATION_MS = 60000;
+
+    private static final Group.GroupType STREAMS_GROUP_PROTOCOL = Group.GroupType.CLASSIC;
+    private static final int STREAMS_GROUP_TOPOLOGY_EPOCH = 0;
+    private static final int STREAMS_GROUP_MIN_SESSION_TIMEOUT_MS = 45000;
+    private static final int STREAMS_GROUP_SESSION_TIMEOUT_MS = 45000;
 
     @Test
     public void testFromPropsInvalid() {
@@ -167,11 +174,11 @@ public class GroupConfigTest {
     }
 
     private void doTestInvalidProps(Properties props, Class<? extends Exception> exceptionClassName) {
-        assertThrows(exceptionClassName, () -> GroupConfig.validate(props, createGroupCoordinatorConfig(), createShareGroupConfig()));
+        assertThrows(exceptionClassName, () -> GroupConfig.validate(props, createGroupCoordinatorConfig(), createShareGroupConfig(), createStreamsGroupConfig()));
     }
 
     private void doTestValidProps(Properties props) {
-        assertDoesNotThrow(() -> GroupConfig.validate(props, createGroupCoordinatorConfig(), createShareGroupConfig()));
+        assertDoesNotThrow(() -> GroupConfig.validate(props, createGroupCoordinatorConfig(), createShareGroupConfig(), createStreamsGroupConfig()));
     }
 
     @Test
@@ -201,7 +208,7 @@ public class GroupConfigTest {
         Properties props = new Properties();
         props.put(GroupConfig.CONSUMER_SESSION_TIMEOUT_MS_CONFIG, "10");
         props.put("invalid.config.name", "10");
-        assertThrows(InvalidConfigurationException.class, () -> GroupConfig.validate(props, createGroupCoordinatorConfig(), createShareGroupConfig()));
+        assertThrows(InvalidConfigurationException.class, () -> GroupConfig.validate(props, createGroupCoordinatorConfig(), createShareGroupConfig(), createStreamsGroupConfig()));
     }
 
     private Properties createValidGroupConfig() {
@@ -212,6 +219,7 @@ public class GroupConfigTest {
         props.put(GroupConfig.SHARE_HEARTBEAT_INTERVAL_MS_CONFIG, "5000");
         props.put(GroupConfig.SHARE_RECORD_LOCK_DURATION_MS_CONFIG, "30000");
         props.put(GroupConfig.SHARE_AUTO_OFFSET_RESET_CONFIG, "latest");
+        props.put(GroupConfig.ST)
         return props;
     }
 
@@ -222,5 +230,9 @@ public class GroupConfigTest {
     private ShareGroupConfig createShareGroupConfig() {
         return ShareGroupConfigTest.createShareGroupConfig(SHARE_GROUP_ENABLE, SHARE_GROUP_PARTITION_MAX_RECORD_LOCKS, SHARE_GROUP_DELIVERY_COUNT_LIMIT,
             SHARE_GROUP_MAX_GROUPS, SHARE_GROUP_RECORD_LOCK_DURATION_MS, SHARE_GROUP_MIN_RECORD_LOCK_DURATION_MS, SHARE_GROUP_MAX_RECORD_LOCK_DURATION_MS);
+    }
+
+    private StreamsGroupConfig createStreamsGroupConfig() {
+        return StreamsGroupConfigTest.createStreamsGroupConfig(STREAMS_GROUP_PROTOCOL, STREAMS_GROUP_TOPOLOGY_EPOCH, STREAMS_GROUP_MIN_SESSION_TIMEOUT_MS, STREAMS_GROUP_SESSION_TIMEOUT_MS);
     }
 }

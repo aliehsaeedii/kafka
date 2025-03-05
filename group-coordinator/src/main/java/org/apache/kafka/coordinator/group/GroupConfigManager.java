@@ -20,6 +20,7 @@ package org.apache.kafka.coordinator.group;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.coordinator.group.modern.share.ShareGroupConfig;
+import org.apache.kafka.coordinator.group.streams.StreamsGroupConfig;
 
 import java.util.Map;
 import java.util.Optional;
@@ -78,12 +79,13 @@ public class GroupConfigManager implements AutoCloseable {
     public static void validate(
         Properties newGroupConfig,
         GroupCoordinatorConfig groupCoordinatorConfig,
-        ShareGroupConfig shareGroupConfig
+        ShareGroupConfig shareGroupConfig,
+        StreamsGroupConfig streamsGroupConfig
     ) {
         Properties combinedConfigs = new Properties();
         combinedConfigs.putAll(groupCoordinatorConfig.extractConsumerGroupConfigMap());
         combinedConfigs.putAll(newGroupConfig);
-        GroupConfig.validate(combinedConfigs, groupCoordinatorConfig, shareGroupConfig);
+        GroupConfig.validate(combinedConfigs, groupCoordinatorConfig, shareGroupConfig, streamsGroupConfig);
     }
 
     /**

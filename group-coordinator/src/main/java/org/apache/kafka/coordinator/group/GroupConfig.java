@@ -22,6 +22,7 @@ import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigDef.Type;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.coordinator.group.modern.share.ShareGroupConfig;
+import org.apache.kafka.coordinator.group.streams.StreamsGroupConfig;
 
 import java.util.Map;
 import java.util.Optional;
@@ -107,7 +108,30 @@ public final class GroupConfig extends AbstractConfig {
             SHARE_AUTO_OFFSET_RESET_DEFAULT,
             new ShareGroupAutoOffsetResetStrategy.Validator(),
             MEDIUM,
-            SHARE_AUTO_OFFSET_RESET_DOC);
+            SHARE_AUTO_OFFSET_RESET_DOC)
+        .define(StreamsGroupConfig.STREAMS_GROUP_PROTOCOL_CONFIG,
+            STRING,
+            StreamsGroupConfig.STREAMS_GROUP_PROTOCOL_DEFAULT,
+            MEDIUM,
+            StreamsGroupConfig.STREAMS_GROUP_PROTOCOL_DOC)
+        .define(StreamsGroupConfig.STREAMS_GROUP_TOPOLOGY_EPOCH_CONFIG,
+            INT,
+            StreamsGroupConfig.STREAMS_GROUP_TOPOLOGY_EPOCH_DEFAULT,
+            atLeast(0),
+            MEDIUM,
+            StreamsGroupConfig.STREAMS_GROUP_TOPOLOGY_EPOCH_DOC)
+        .define(StreamsGroupConfig.STREAMS_GROUP_MIN_SESSION_TIMEOUT_MS_CONFIG,
+            INT,
+            StreamsGroupConfig.STREAMS_GROUP_MIN_SESSION_TIMEOUT_MS_DEFAULT,
+            atLeast(0),
+            MEDIUM,
+            StreamsGroupConfig.STREAMS_GROUP_MIN_SESSION_TIMEOUT_MS_DOC)
+        .define(StreamsGroupConfig.STREAMS_GROUP_SESSION_TIMEOUT_MS_CONFIG,
+            INT,
+            StreamsGroupConfig.STREAMS_GROUP_SESSION_TIMEOUT_MS_DEFAULT,
+            atLeast(0),
+            MEDIUM,
+            StreamsGroupConfig.STREAMS_GROUP_SESSION_TIMEOUT_MS_DOC);
 
     public GroupConfig(Map<?, ?> props) {
         super(CONFIG, props, false);
@@ -147,12 +171,16 @@ public final class GroupConfig extends AbstractConfig {
      * Validates the values of the given properties.
      */
     @SuppressWarnings("NPathComplexity")
-    private static void validateValues(Map<?, ?> valueMaps, GroupCoordinatorConfig groupCoordinatorConfig, ShareGroupConfig shareGroupConfig) {
+    private static void validateValues(Map<?, ?> valueMaps, GroupCoordinatorConfig groupCoordinatorConfig, ShareGroupConfig shareGroupConfig, StreamsGroupConfig streamsGroupConfig) {
         int consumerHeartbeatInterval = (Integer) valueMaps.get(CONSUMER_HEARTBEAT_INTERVAL_MS_CONFIG);
         int consumerSessionTimeout = (Integer) valueMaps.get(CONSUMER_SESSION_TIMEOUT_MS_CONFIG);
         int shareHeartbeatInterval = (Integer) valueMaps.get(SHARE_HEARTBEAT_INTERVAL_MS_CONFIG);
         int shareSessionTimeout = (Integer) valueMaps.get(SHARE_SESSION_TIMEOUT_MS_CONFIG);
         int shareRecordLockDurationMs = (Integer) valueMaps.get(SHARE_RECORD_LOCK_DURATION_MS_CONFIG);
+        Group.GroupType streamsGroupType = (Group.GroupType) valueMaps.get(StreamsGroupConfig.STREAMS_GROUP_PROTOCOL_CONFIG);
+        int streamsGroupTopologyEpoch = (Integer) valueMaps.get(StreamsGroupConfig.STREAMS_GROUP_TOPOLOGY_EPOCH_CONFIG);
+        int streamsGroupMinSessionTimeoutMs = (Integer) valueMaps.get(StreamsGroupConfig.STREAMS_GROUP_MIN_SESSION_TIMEOUT_MS_CONFIG);
+        int streamsGroupSessionTimeoutMs = (Integer) valueMaps.get(StreamsGroupConfig.STREAMS_GROUP_SESSION_TIMEOUT_MS_CONFIG);
         if (consumerHeartbeatInterval < groupCoordinatorConfig.consumerGroupMinHeartbeatIntervalMs()) {
             throw new InvalidConfigurationException(CONSUMER_HEARTBEAT_INTERVAL_MS_CONFIG + " must be greater than or equal to " +
                 GroupCoordinatorConfig.CONSUMER_GROUP_MIN_HEARTBEAT_INTERVAL_MS_CONFIG);
@@ -201,16 +229,31 @@ public final class GroupConfig extends AbstractConfig {
             throw new InvalidConfigurationException(SHARE_SESSION_TIMEOUT_MS_CONFIG + " must be greater than " +
                 SHARE_HEARTBEAT_INTERVAL_MS_CONFIG);
         }
+        if (streamsGroupType != Group.GroupType.STREAMS && streamsGroupType != Group.GroupType.CLASSIC) {
+            throw new InvalidConfigurationException(StreamsGroupConfig.STREAMS_GROUP_TOPOLOGY_EPOCH_CONFIG + " must be either Streams or Classic");
+        }
+        if (streamsGroupType == Group.GroupType.CLASSIC && streamsGroupTopologyEpoch != 0) {
+            throw new InvalidConfigurationException(StreamsGroupConfig.STREAMS_GROUP_TOPOLOGY_EPOCH_CONFIG + " must be 0");
+        }
+        if (streamsGroupTopologyEpoch < 0) {
+            throw new InvalidConfigurationException(StreamsGroupConfig.STREAMS_GROUP_TOPOLOGY_EPOCH_CONFIG + " must be greater than or equal to 0");
+        }
+        if (streamsGroupMinSessionTimeoutMs < 0) {
+            throw new InvalidConfigurationException(StreamsGroupConfig.STREAMS_GROUP_MIN_SESSION_TIMEOUT_MS_CONFIG + " must be greater than or equal to 0");
+        }
+        if (streamsGroupSessionTimeoutMs < 0) {
+            throw new InvalidConfigurationException(StreamsGroupConfig.STREAMS_GROUP_SESSION_TIMEOUT_MS_CONFIG + " must be greater than or equal to 0");
+        }
     }
 
     /**
      * Check that the given properties contain only valid consumer group config names and that all values can be
      * parsed and are valid.
      */
-    public static void validate(Properties props, GroupCoordinatorConfig groupCoordinatorConfig, ShareGroupConfig shareGroupConfig) {
+    public static void validate(Properties props, GroupCoordinatorConfig groupCoordinatorConfig, ShareGroupConfig shareGroupConfig, StreamsGroupConfig streamsGroupConfig) {
         validateNames(props);
         Map<?, ?> valueMaps = CONFIG.parse(props);
-        validateValues(valueMaps, groupCoordinatorConfig, shareGroupConfig);
+        validateValues(valueMaps, groupCoordinatorConfig, shareGroupConfig, streamsGroupConfig);
     }
 
     /**
