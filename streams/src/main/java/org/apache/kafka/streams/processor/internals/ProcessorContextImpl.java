@@ -129,15 +129,11 @@ public final class ProcessorContextImpl extends AbstractProcessorContext<Object,
 
         final TopicPartition changelogPartition = stateManager().registeredChangelogPartitionFor(storeName);
 
-        final Headers headers;
+        Headers headers = new RecordHeaders();
         if (!consistencyEnabled) {
             headers = null;
         } else {
-            // Add the vector clock to the header part of every record
-            headers = new RecordHeaders();
-            headers.add(ChangelogRecordDeserializationHelper.CHANGELOG_VERSION_HEADER_RECORD_CONSISTENCY);
-            headers.add(new RecordHeader(ChangelogRecordDeserializationHelper.CHANGELOG_POSITION_HEADER_KEY,
-                    PositionSerde.serialize(position).array()));
+            addVectorClockToHeaders(headers, position);
         }
 
         collector.send(
@@ -151,6 +147,41 @@ public final class ProcessorContextImpl extends AbstractProcessorContext<Object,
             BYTEARRAY_VALUE_SERIALIZER,
             null,
             null);
+    }
+
+    @Override
+    public void logChange(final String storeName,
+                          final Bytes key,
+                          final byte[] value,
+                          final long timestamp,
+                          final Headers headers,
+                          final Position position) {
+        throwUnsupportedOperationExceptionIfStandby("logChange");
+
+        final TopicPartition changelogPartition = stateManager().registeredChangelogPartitionFor(storeName);
+        if (consistencyEnabled) {
+            addVectorClockToHeaders(headers, position);
+        }
+
+        collector.send(
+            changelogPartition.topic(),
+            key,
+            value,
+            headers,
+            changelogPartition.partition(),
+            timestamp,
+            BYTES_KEY_SERIALIZER,
+            BYTEARRAY_VALUE_SERIALIZER,
+            null,
+            null);
+    }
+
+    private void addVectorClockToHeaders(Headers headers, Position position) {
+        // Add the vector clock to the header part of every record
+        headers = new RecordHeaders();
+        headers.add(ChangelogRecordDeserializationHelper.CHANGELOG_VERSION_HEADER_RECORD_CONSISTENCY);
+        headers.add(new RecordHeader(ChangelogRecordDeserializationHelper.CHANGELOG_POSITION_HEADER_KEY,
+            PositionSerde.serialize(position).array()));
     }
 
     /**

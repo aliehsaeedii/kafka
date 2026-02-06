@@ -22,6 +22,7 @@ import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.common.utils.LogCaptureAppender;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.state.KeyValueIterator;
+import org.apache.kafka.streams.state.TimestampedBytesStore;
 
 import org.hamcrest.core.IsNull;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,7 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
 import static java.util.Arrays.asList;
 import static org.hamcrest.CoreMatchers.hasItem;
@@ -46,9 +48,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 public class RocksDBTimestampedStoreTest extends RocksDBStoreTest {
 
     private final Serializer<String> stringSerializer = new StringSerializer();
+    private final Function<byte[], byte[]> migrationConverter = TimestampedBytesStore::convertToTimestampedFormat;
 
     RocksDBStore getRocksDBStore() {
-        return new RocksDBTimestampedStore(DB_NAME, METRICS_SCOPE);
+        return new RocksDBTimestampedStore(DB_NAME, METRICS_SCOPE, migrationConverter);
     }
 
     @Test

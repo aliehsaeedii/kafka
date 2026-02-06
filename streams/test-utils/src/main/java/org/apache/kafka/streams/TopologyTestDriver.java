@@ -81,8 +81,10 @@ import org.apache.kafka.streams.state.ReadOnlySessionStore;
 import org.apache.kafka.streams.state.ReadOnlyWindowStore;
 import org.apache.kafka.streams.state.SessionStore;
 import org.apache.kafka.streams.state.TimestampedKeyValueStore;
+import org.apache.kafka.streams.state.TimestampedKeyValueStoreWithHeaders;
 import org.apache.kafka.streams.state.TimestampedWindowStore;
 import org.apache.kafka.streams.state.ValueAndTimestamp;
+import org.apache.kafka.streams.state.ValueTimestampHeaders;
 import org.apache.kafka.streams.state.VersionedKeyValueStore;
 import org.apache.kafka.streams.state.WindowStore;
 import org.apache.kafka.streams.state.WindowStoreIterator;
@@ -1120,6 +1122,12 @@ public class TopologyTestDriver implements Closeable {
     public <K, V> SessionStore<K, V> getSessionStore(final String name) {
         final StateStore store = getStateStore(name, false);
         return store instanceof SessionStore ? (SessionStore<K, V>) store : null;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <K, V> KeyValueStore<K, ValueTimestampHeaders<V>> getTimestampedKeyValueStoreWithHeaders(final String name) {
+        final StateStore store = getStateStore(name, false);
+        return store instanceof TimestampedKeyValueStoreWithHeaders ? (TimestampedKeyValueStoreWithHeaders<K, V>) store : null;
     }
 
     /**

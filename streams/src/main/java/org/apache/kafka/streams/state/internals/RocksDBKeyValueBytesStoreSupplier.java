@@ -20,15 +20,20 @@ import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.state.KeyValueBytesStoreSupplier;
 import org.apache.kafka.streams.state.KeyValueStore;
 
+import java.util.function.Function;
+
 public class RocksDBKeyValueBytesStoreSupplier implements KeyValueBytesStoreSupplier {
 
     private final String name;
     private final boolean returnTimestampedStore;
+    private final Function<byte[], byte[]> migrationConverter;
 
     public RocksDBKeyValueBytesStoreSupplier(final String name,
-                                             final boolean returnTimestampedStore) {
+                                             final boolean returnTimestampedStore,
+                                             final Function<byte[], byte[]> migrationConverter) {
         this.name = name;
         this.returnTimestampedStore = returnTimestampedStore;
+        this.migrationConverter = migrationConverter;
     }
 
     @Override
@@ -38,10 +43,12 @@ public class RocksDBKeyValueBytesStoreSupplier implements KeyValueBytesStoreSupp
 
     @Override
     public KeyValueStore<Bytes, byte[]> get() {
-        return returnTimestampedStore ?
-            new RocksDBTimestampedStore(name, metricsScope()) :
-            new RocksDBStore(name, metricsScope());
+        if (returnTimestampedStore) {
+            return new RocksDBTimestampedStore(name, metricsScope(), migrationConverter);
+        }
+        return new RocksDBStore(name, metricsScope());
     }
+
 
     @Override
     public String metricsScope() {

@@ -21,6 +21,7 @@ import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.streams.processor.StateStore;
 import org.apache.kafka.streams.state.KeyValueBytesStoreSupplier;
+import org.apache.kafka.streams.state.TimestampedBytesStore;
 import org.apache.kafka.streams.state.TimestampedKeyValueStore;
 
 import org.hamcrest.CoreMatchers;
@@ -129,7 +130,8 @@ public class TimestampedKeyValueStoreBuilderTest {
     @Test
     public void shouldNotWrapTimestampedByteStore() {
         setUp();
-        when(supplier.get()).thenReturn(new RocksDBTimestampedStore("name", "metrics-scope"));
+        when(supplier.get()).thenReturn(new RocksDBTimestampedStore("name", "metrics-scope",
+            TimestampedBytesStore::convertToTimestampedFormat));
 
         final TimestampedKeyValueStore<String, String> store = builder
             .withLoggingDisabled()
