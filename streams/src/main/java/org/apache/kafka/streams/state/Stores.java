@@ -555,6 +555,7 @@ public final class Stores {
      * @param keySerde      the key serde to use
      * @param valueSerde    the value serde to use; if the serialized bytes is {@code null} for put operations,
      *                      it is treated as delete
+     *                      it is treated as delete
      * @param <K>           key type
      * @param <V>           value type
      * @return an instance of {@link StoreBuilder} that can build a {@link TimestampedWindowStore}
