@@ -1242,8 +1242,8 @@ public class TopologyTestDriver implements Closeable {
         }
 
         @Override
-        public void flush() {
-            inner.flush();
+        public void commit(final Map<TopicPartition, Long> changelogOffsets) {
+            inner.commit(changelogOffsets);
         }
 
         @Override
@@ -1334,8 +1334,8 @@ public class TopologyTestDriver implements Closeable {
         }
 
         @Override
-        public void flush() {
-            inner.flush();
+        public void commit(final Map<TopicPartition, Long> changelogOffsets) {
+            inner.commit(changelogOffsets);
         }
 
         @Override
