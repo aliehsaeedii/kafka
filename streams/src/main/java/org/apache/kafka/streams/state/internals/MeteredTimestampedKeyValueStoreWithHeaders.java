@@ -64,6 +64,17 @@ public class MeteredTimestampedKeyValueStoreWithHeaders<K, V>
     }
 
     @Override
+    public ValueTimestampHeaders<V> get(final K key) {
+        Objects.requireNonNull(key, "key cannot be null");
+        try {
+            return maybeMeasureLatency(() -> outerValue(wrapped().get(keyBytes(key))), time, getSensor);
+        } catch (final ProcessorStateException e) {
+            final String message = String.format(e.getMessage(), key);
+            throw new ProcessorStateException(message, e);
+        }
+    }
+
+    @Override
     public void put(final K key,
                     final ValueTimestampHeaders<V> value) {
         Objects.requireNonNull(key, "key cannot be null");
