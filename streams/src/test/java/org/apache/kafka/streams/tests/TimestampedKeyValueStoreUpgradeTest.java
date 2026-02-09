@@ -117,7 +117,6 @@ public class TimestampedKeyValueStoreUpgradeTest {
       if (legacyDriver != null) {
         legacyDriver.close();
       }
-      copyDirectory(new File(stateDir, "upgrade-test-app"), tempStateDir);
     }
     // step 1.5
     try {

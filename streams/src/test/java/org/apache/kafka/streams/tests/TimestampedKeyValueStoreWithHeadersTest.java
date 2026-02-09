@@ -13,6 +13,7 @@ import org.apache.kafka.streams.state.TimestampedKeyValueStoreWithHeaders;
 import org.apache.kafka.streams.state.ValueTimestampHeaders;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -28,7 +29,8 @@ public class TimestampedKeyValueStoreWithHeadersTest {
             Stores.persistentTimestampedKeyValueStoreWithHeaders("test-store"),
             Serdes.String(),
             Serdes.String()
-        );
+        ).withCachingEnabled()
+            .withLoggingEnabled(Collections.emptyMap());
 
     // 2. Setup the topology with a dummy connection
     Topology topology = new Topology();

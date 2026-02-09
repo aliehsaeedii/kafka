@@ -17,13 +17,22 @@
 package org.apache.kafka.streams.state.internals;
 
 import org.apache.kafka.common.serialization.Serde;
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.streams.KeyValue;
+import org.apache.kafka.streams.query.PositionBound;
+import org.apache.kafka.streams.query.Query;
+import org.apache.kafka.streams.query.QueryConfig;
+import org.apache.kafka.streams.query.QueryResult;
+import org.apache.kafka.streams.state.HeadersBytesStore;
 import org.apache.kafka.streams.state.KeyValueBytesStoreSupplier;
+import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.streams.state.TimestampedKeyValueStoreWithHeaders;
 import org.apache.kafka.streams.state.ValueTimestampHeaders;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -57,6 +66,14 @@ public class TimestampedKeyValueStoreBuilderWithHeaders<K, V>
     public TimestampedKeyValueStoreWithHeaders<K, V> build() {
         KeyValueStore<Bytes, byte[]> store = storeSupplier.get();
 
+        if (!(store instanceof HeadersBytesStore)) {
+            if (store.persistent()) {
+                store = new TimestampedToHeadersStoreAdapter(store);
+            } else {
+                store = new InMemoryTimestampedKeyValueStoreWithHeadersMarker(store);
+            }
+        }
+
         return new MeteredTimestampedKeyValueStoreWithHeaders<>(
             maybeWrapCaching(maybeWrapLogging(store)),
             storeSupplier.metricsScope(),
@@ -78,5 +95,90 @@ public class TimestampedKeyValueStoreBuilderWithHeaders<K, V>
             return inner;
         }
         return new ChangeLoggingTimestampedKeyValueBytesStoreWithHeaders(inner);
+    }
+
+    private static final class InMemoryTimestampedKeyValueStoreWithHeadersMarker
+        extends WrappedStateStore<KeyValueStore<Bytes, byte[]>, Bytes, byte[]>
+        implements KeyValueStore<Bytes, byte[]>, HeadersBytesStore {
+
+        private InMemoryTimestampedKeyValueStoreWithHeadersMarker(final KeyValueStore<Bytes, byte[]> wrapped) {
+            super(wrapped);
+            if (wrapped.persistent()) {
+                throw new IllegalArgumentException("Provided store must not be a persistent store, but it is.");
+            }
+        }
+
+        @Override
+        public void put(final Bytes key,
+                        final byte[] value) {
+            wrapped().put(key, value);
+        }
+
+        @Override
+        public byte[] putIfAbsent(final Bytes key,
+                                  final byte[] value) {
+            return wrapped().putIfAbsent(key, value);
+        }
+
+        @Override
+        public void putAll(final List<KeyValue<Bytes, byte[]>> entries) {
+            wrapped().putAll(entries);
+        }
+
+        @Override
+        public byte[] delete(final Bytes key) {
+            return wrapped().delete(key);
+        }
+
+        @Override
+        public byte[] get(final Bytes key) {
+            return wrapped().get(key);
+        }
+
+        @Override
+        public KeyValueIterator<Bytes, byte[]> range(final Bytes from,
+                                                     final Bytes to) {
+            throw new UnsupportedOperationException("Range queries are not supported by in-memory timestamped key-value stores with headers");
+        }
+
+        @Override
+        public KeyValueIterator<Bytes, byte[]> reverseRange(final Bytes from,
+                                                            final Bytes to) {
+            throw new UnsupportedOperationException("Range queries are not supported by in-memory timestamped key-value stores with headers");
+        }
+
+        @Override
+        public KeyValueIterator<Bytes, byte[]> all() {
+            throw new UnsupportedOperationException("Range queries are not supported by in-memory timestamped key-value stores with headers");
+        }
+
+        @Override
+        public KeyValueIterator<Bytes, byte[]> reverseAll() {
+            throw new UnsupportedOperationException("Range queries are not supported by in-memory timestamped key-value stores with headers");
+        }
+
+        @Override
+        public <PS extends Serializer<P>, P> KeyValueIterator<Bytes, byte[]> prefixScan(final P prefix,
+                                                                                        final PS prefixKeySerializer) {
+            throw new UnsupportedOperationException("Range queries are not supported by in-memory timestamped key-value stores with headers");
+        }
+
+        @Override
+        public long approximateNumEntries() {
+            return wrapped().approximateNumEntries();
+        }
+
+        @Override
+        public <R> QueryResult<R> query(final Query<R> query,
+                                        final PositionBound positionBound,
+                                        final QueryConfig config) {
+
+            throw new UnsupportedOperationException("Queries are not supported by in-memory timestamped key-value stores with headers");
+        }
+
+        @Override
+        public boolean persistent() {
+            return false;
+        }
     }
 }
