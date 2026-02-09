@@ -56,7 +56,7 @@ public class RocksDBTimestampedStoreWithHeadersTest extends RocksDBStoreTest {
     try (final LogCaptureAppender appender = LogCaptureAppender.createAndRegister(RocksDBTimestampedStoreWithHeaders.class)) {
       rocksDBStore.init(context, rocksDBStore);
 
-      assertThat(appender.getMessages(), hasItem("Opening store " + DB_NAME + " in regular mode"));
+      assertThat(appender.getMessages(), hasItem("Opening store " + DB_NAME + " in regular header-aware mode"));
     }
 
     try (final KeyValueIterator<Bytes, byte[]> iterator = rocksDBStore.all()) {
