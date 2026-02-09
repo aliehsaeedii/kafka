@@ -44,7 +44,8 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Function;
+
+import static org.apache.kafka.streams.state.TimestampedBytesStore.convertToTimestampedFormat;
 
 /**
  * A persistent key-(value-timestamp) store based on RocksDB.
@@ -54,21 +55,15 @@ public class RocksDBTimestampedStore extends RocksDBStore implements Timestamped
 
     private static final byte[] TIMESTAMPED_VALUES_COLUMN_FAMILY_NAME = "keyValueWithTimestamp".getBytes(StandardCharsets.UTF_8);
 
-    private final Function<byte[], byte[]> migrationConverter;
-
     public RocksDBTimestampedStore(final String name,
-                                   final String metricsScope,
-                                   final Function<byte[], byte[]> migrationConverter) {
+                            final String metricsScope) {
         super(name, metricsScope);
-        this.migrationConverter = migrationConverter;
     }
 
     RocksDBTimestampedStore(final String name,
                             final String parentDir,
-                            final RocksDBMetricsRecorder metricsRecorder,
-                            final Function<byte[], byte[]> migrationConverter) {
+                            final RocksDBMetricsRecorder metricsRecorder) {
         super(name, parentDir, metricsRecorder);
-        this.migrationConverter = migrationConverter;
     }
 
     @Override
@@ -168,7 +163,7 @@ public class RocksDBTimestampedStore extends RocksDBStore implements Timestamped
 
             final byte[] plainValue = readOptions.isPresent() ? accessor.get(oldColumnFamily, readOptions.get(), key) : accessor.get(oldColumnFamily, key);
             if (plainValue != null) {
-                final byte[] valueWithUnknownTimestamp = migrationConverter.apply(plainValue);
+                final byte[] valueWithUnknownTimestamp = convertToTimestampedFormat(plainValue);
                 // this does only work, because the changelog topic contains correct data already
                 // for other format changes, we cannot take this short cut and can only migrate data
                 // from old to new store on put()
@@ -188,7 +183,7 @@ public class RocksDBTimestampedStore extends RocksDBStore implements Timestamped
 
             final byte[] plainValue = accessor.get(oldColumnFamily, key);
             if (plainValue != null) {
-                return migrationConverter.apply(plainValue);
+                return convertToTimestampedFormat(plainValue);
             }
 
             return null;
@@ -206,8 +201,7 @@ public class RocksDBTimestampedStore extends RocksDBStore implements Timestamped
                 from,
                 to,
                 forward,
-                true,
-                migrationConverter);
+                true);
         }
 
         @Override
@@ -237,7 +231,7 @@ public class RocksDBTimestampedStore extends RocksDBStore implements Timestamped
                 innerIterWithTimestamp.seekToLast();
                 innerIterNoTimestamp.seekToLast();
             }
-            return new RocksDBDualCFIterator(name, innerIterWithTimestamp, innerIterNoTimestamp, forward, migrationConverter);
+            return new RocksDBDualCFIterator(name, innerIterWithTimestamp, innerIterNoTimestamp, forward);
         }
 
         @Override
@@ -250,8 +244,7 @@ public class RocksDBTimestampedStore extends RocksDBStore implements Timestamped
                 prefix,
                 to,
                 true,
-                false,
-                migrationConverter
+                false
             );
         }
 
@@ -299,7 +292,6 @@ public class RocksDBTimestampedStore extends RocksDBStore implements Timestamped
         private final RocksIterator iterWithTimestamp;
         private final RocksIterator iterNoTimestamp;
         private final boolean forward;
-        private final Function<byte[], byte[]> migrationConverter;
 
         private volatile boolean open = true;
 
@@ -311,13 +303,11 @@ public class RocksDBTimestampedStore extends RocksDBStore implements Timestamped
         RocksDBDualCFIterator(final String storeName,
                               final RocksIterator iterWithTimestamp,
                               final RocksIterator iterNoTimestamp,
-                              final boolean forward,
-                              final Function<byte[], byte[]> migrationConverter) {
+                              final boolean forward) {
             this.iterWithTimestamp = iterWithTimestamp;
             this.iterNoTimestamp = iterNoTimestamp;
             this.storeName = storeName;
             this.forward = forward;
-            this.migrationConverter = migrationConverter;
         }
 
         @Override
@@ -357,7 +347,7 @@ public class RocksDBTimestampedStore extends RocksDBStore implements Timestamped
                 }
             } else {
                 if (nextWithTimestamp == null) {
-                    next = KeyValue.pair(new Bytes(nextNoTimestamp), migrationConverter.apply(iterNoTimestamp.value()));
+                    next = KeyValue.pair(new Bytes(nextNoTimestamp), convertToTimestampedFormat(iterNoTimestamp.value()));
                     nextNoTimestamp = null;
                     if (forward) {
                         iterNoTimestamp.next();
@@ -367,7 +357,7 @@ public class RocksDBTimestampedStore extends RocksDBStore implements Timestamped
                 } else {
                     if (forward) {
                         if (comparator.compare(nextNoTimestamp, nextWithTimestamp) <= 0) {
-                            next = KeyValue.pair(new Bytes(nextNoTimestamp), migrationConverter.apply(iterNoTimestamp.value()));
+                            next = KeyValue.pair(new Bytes(nextNoTimestamp), convertToTimestampedFormat(iterNoTimestamp.value()));
                             nextNoTimestamp = null;
                             iterNoTimestamp.next();
                         } else {
@@ -377,7 +367,7 @@ public class RocksDBTimestampedStore extends RocksDBStore implements Timestamped
                         }
                     } else {
                         if (comparator.compare(nextNoTimestamp, nextWithTimestamp) >= 0) {
-                            next = KeyValue.pair(new Bytes(nextNoTimestamp), migrationConverter.apply(iterNoTimestamp.value()));
+                            next = KeyValue.pair(new Bytes(nextNoTimestamp), convertToTimestampedFormat(iterNoTimestamp.value()));
                             nextNoTimestamp = null;
                             iterNoTimestamp.prev();
                         } else {
@@ -432,9 +422,8 @@ public class RocksDBTimestampedStore extends RocksDBStore implements Timestamped
                                    final Bytes from,
                                    final Bytes to,
                                    final boolean forward,
-                                   final boolean toInclusive,
-                                   final Function<byte[], byte[]> migrationConverter) {
-            super(storeName, iterWithTimestamp, iterNoTimestamp, forward, migrationConverter);
+                                   final boolean toInclusive) {
+            super(storeName, iterWithTimestamp, iterNoTimestamp, forward);
             this.forward = forward;
             this.toInclusive = toInclusive;
             if (forward) {

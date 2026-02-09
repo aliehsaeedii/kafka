@@ -22,6 +22,7 @@ import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.Topology;
 import org.apache.kafka.streams.TopologyTestDriver;
 import org.apache.kafka.streams.processor.api.Processor;
+import org.apache.kafka.streams.processor.api.ProcessorContext;
 import org.apache.kafka.streams.processor.api.Record;
 import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.streams.state.StoreBuilder;
@@ -38,6 +39,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
+import java.util.HashMap;
 import java.util.Properties;
 import java.util.stream.Stream;
 
@@ -97,6 +100,9 @@ public class TimestampedKeyValueStoreUpgradeTest {
       legacyStore.put("key1", ValueAndTimestamp.make("value1", timestamp1));
       legacyStore.put("key2", ValueAndTimestamp.make("value2", timestamp2));
 
+//      legacyDriver.advanceWallClockTime(Duration.ofMillis(10));
+      legacyStore.commit(new HashMap<>());
+
       // Verify legacy data can be read
       final ValueAndTimestamp<String> result1 = legacyStore.get("key1");
       assertNotNull(result1);
@@ -104,10 +110,53 @@ public class TimestampedKeyValueStoreUpgradeTest {
       assertEquals(timestamp1, result1.timestamp());
 
       // Flush the store to ensure data is written to disk
-      legacyStore.flush();
-
-      // Copy the state directory BEFORE closing the driver
+//      legacyStore.flush();
       copyDirectory(new File(stateDir, "upgrade-test-app"), tempStateDir);
+
+    } finally {
+      if (legacyDriver != null) {
+        legacyDriver.close();
+      }
+      copyDirectory(new File(stateDir, "upgrade-test-app"), tempStateDir);
+    }
+    // step 1.5
+    try {
+      copyDirectory(tempStateDir, new File(stateDir, "upgrade-test-app"));
+
+      final StoreBuilder<TimestampedKeyValueStore<String, String>> legacyStoreBuilder =
+          Stores.timestampedKeyValueStoreBuilder(
+              Stores.persistentTimestampedKeyValueStore(storeName),
+              Serdes.String(),
+              Serdes.String()
+          );
+
+      final Topology topology = new Topology();
+      topology.addSource("source", "input-topic")
+          .addProcessor("processor", () -> new Processor<Object, Object, Object, Object>() {
+            @Override
+            public void process(Record<Object, Object> record) {
+            }
+          }, "source")
+          .addStateStore(legacyStoreBuilder, "processor");
+
+      final Properties props = createStreamsConfig();
+
+      legacyDriver = new TopologyTestDriver(topology, props);
+      final KeyValueStore<String, ValueAndTimestamp<String>> legacyStore =
+          legacyDriver.getTimestampedKeyValueStore(storeName);
+
+      assertNotNull(legacyStore, "Legacy store should not be null");
+
+
+      // Verify legacy data can be read
+      final ValueAndTimestamp<String> result1 = legacyStore.get("key1");
+      assertNotNull(result1);
+      assertEquals("value1", result1.value());
+      assertEquals(timestamp1, result1.timestamp());
+
+      // Flush the store to ensure data is written to disk
+//      legacyStore.flush();
+
     } finally {
       if (legacyDriver != null) {
         legacyDriver.close();
@@ -156,47 +205,47 @@ public class TimestampedKeyValueStoreUpgradeTest {
         assertEquals("value2", legacyResult2.value());
         assertEquals(timestamp2, legacyResult2.timestamp());
         assertEquals(0, legacyResult2.headers().toArray().length, "Legacy data should have empty headers");
-//
-//        // Step 4: Write new data with headers
-//        final RecordHeaders headers3 = new RecordHeaders();
-//        headers3.add("source", "upgrade-test".getBytes());
-//        headers3.add("version", "2.0".getBytes());
-//
-//        headerStore.put(
-//            "key3",
-//            ValueTimestampHeaders.make("value3", timestamp3, headers3)
-//        );
-//
-//        // Step 5: Verify new data can be read with headers
-//        final ValueTimestampHeaders<String> newResult = headerStore.get("key3");
-//        assertNotNull(newResult, "New key3 should be readable");
-//        assertEquals("value3", newResult.value());
-//        assertEquals(timestamp3, newResult.timestamp());
-//        assertNotNull(newResult.headers());
-//        assertEquals(2, newResult.headers().toArray().length, "New data should have 2 headers");
-//        assertEquals("upgrade-test", new String(newResult.headers().lastHeader("source").value()));
-//        assertEquals("2.0", new String(newResult.headers().lastHeader("version").value()));
-//
-//        // Step 6: Verify we can update legacy data with headers
-//        final RecordHeaders headers1Updated = new RecordHeaders();
-//        headers1Updated.add("updated", "true".getBytes());
-//
-//        headerStore.put(
-//            "key1",
-//            ValueTimestampHeaders.make("value1-updated", timestamp1 + 100, headers1Updated)
-//        );
-//
-//        final ValueTimestampHeaders<String> updatedResult = headerStore.get("key1");
-//        assertNotNull(updatedResult);
-//        assertEquals("value1-updated", updatedResult.value());
-//        assertEquals(timestamp1 + 100, updatedResult.timestamp());
-//        assertEquals(1, updatedResult.headers().toArray().length);
-//        assertEquals("true", new String(updatedResult.headers().lastHeader("updated").value()));
-//
-//        // Step 7: Verify all keys are present (legacy and new)
-//        assertNotNull(headerStore.get("key1"), "key1 should still exist");
-//        assertNotNull(headerStore.get("key2"), "key2 should still exist");
-//        assertNotNull(headerStore.get("key3"), "key3 should exist");
+
+        // Step 4: Write new data with headers
+        final RecordHeaders headers3 = new RecordHeaders();
+        headers3.add("source", "upgrade-test".getBytes());
+        headers3.add("version", "2.0".getBytes());
+
+        headerStore.put(
+            "key3",
+            ValueTimestampHeaders.make("value3", timestamp3, headers3)
+        );
+
+        // Step 5: Verify new data can be read with headers
+        final ValueTimestampHeaders<String> newResult = headerStore.get("key3");
+        assertNotNull(newResult, "New key3 should be readable");
+        assertEquals("value3", newResult.value());
+        assertEquals(timestamp3, newResult.timestamp());
+        assertNotNull(newResult.headers());
+        assertEquals(2, newResult.headers().toArray().length, "New data should have 2 headers");
+        assertEquals("upgrade-test", new String(newResult.headers().lastHeader("source").value()));
+        assertEquals("2.0", new String(newResult.headers().lastHeader("version").value()));
+
+        // Step 6: Verify we can update legacy data with headers
+        final RecordHeaders headers1Updated = new RecordHeaders();
+        headers1Updated.add("updated", "true".getBytes());
+
+        headerStore.put(
+            "key1",
+            ValueTimestampHeaders.make("value1-updated", timestamp1 + 100, headers1Updated)
+        );
+
+        final ValueTimestampHeaders<String> updatedResult = headerStore.get("key1");
+        assertNotNull(updatedResult);
+        assertEquals("value1-updated", updatedResult.value());
+        assertEquals(timestamp1 + 100, updatedResult.timestamp());
+        assertEquals(1, updatedResult.headers().toArray().length);
+        assertEquals("true", new String(updatedResult.headers().lastHeader("updated").value()));
+
+        // Step 7: Verify all keys are present (legacy and new)
+        assertNotNull(headerStore.get("key1"), "key1 should still exist");
+        assertNotNull(headerStore.get("key2"), "key2 should still exist");
+        assertNotNull(headerStore.get("key3"), "key3 should exist");
       }
     }
   }

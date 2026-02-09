@@ -137,7 +137,14 @@ class ValueTimestampHeadersDeserializer<V> implements WrappingNullableDeserializ
      * Extract raw headers bytes from serialized ValueTimestampHeaders.
      */
     public static byte[] rawHeaders(final byte[] rawValueTimestampHeaders) {
-        return null;
+        if (rawValueTimestampHeaders == null) {
+            return null;
+        }
+
+        final ByteBuffer buffer = ByteBuffer.wrap(rawValueTimestampHeaders);
+        final int headersSize = ByteUtils.readVarint(buffer);
+
+        return readBytes(buffer, headersSize);
     }
 
     /**

@@ -95,7 +95,7 @@ public final class Stores {
      */
     public static KeyValueBytesStoreSupplier persistentKeyValueStore(final String name) {
         Objects.requireNonNull(name, "name cannot be null");
-        return new RocksDBKeyValueBytesStoreSupplier(name, false, null);
+        return new RocksDBKeyValueBytesStoreSupplier(name, false, false);
     }
 
     /**
@@ -114,7 +114,7 @@ public final class Stores {
      */
     public static KeyValueBytesStoreSupplier persistentTimestampedKeyValueStore(final String name) {
         Objects.requireNonNull(name, "name cannot be null");
-        return new RocksDBKeyValueBytesStoreSupplier(name, true, TimestampedBytesStore::convertToTimestampedFormat);
+        return new RocksDBKeyValueBytesStoreSupplier(name, true, false);
     }
 
     /**
@@ -133,7 +133,7 @@ public final class Stores {
      */
     public static KeyValueBytesStoreSupplier persistentTimestampedKeyValueStoreWithHeaders(final String name) {
         Objects.requireNonNull(name, "name cannot be null");
-        return new RocksDBKeyValueBytesStoreSupplier(name, true, HeadersBytesStore::convertToHeaderFormat);
+        return new RocksDBKeyValueBytesStoreSupplier(name, true, true);
     }
 
     /**
