@@ -457,8 +457,8 @@ public class RocksDBTimestampedStoreWithHeadersTest extends RocksDBStoreTest {
         assertThat(db.get(headersColumnFamily, "key5".getBytes()).length, is(1 + 0 + 8 + 5));
         assertThat(db.get(headersColumnFamily, "key6".getBytes()), new IsNull<>());
         assertThat(db.get(headersColumnFamily, "key7".getBytes()), new IsNull<>());
-        assertThat(db.get(headersColumnFamily, "key8".getBytes()).length, is(18));
-        assertThat(db.get(headersColumnFamily, "key11".getBytes()).length, is(21));
+        assertThat(db.get(headersColumnFamily, "key8".getBytes()).length, is(26));
+        assertThat(db.get(headersColumnFamily, "key11".getBytes()).length, is(29));
         assertThat(db.get(headersColumnFamily, "key12".getBytes()), new IsNull<>());
     }
 
