@@ -22,6 +22,14 @@ import org.apache.kafka.streams.state.ValueTimestampHeaders;
 
 import static java.util.Objects.requireNonNull;
 
+/**
+ * Serde for ValueTimestampHeaders.
+ *
+ * This serde wraps a value serde and handles serialization/deserialization of
+ * values along with their timestamps and headers.
+ *
+ * This is used by KIP-1271 to support headers in state stores.
+ */
 public class ValueTimestampHeadersSerde<V> extends WrappingNullableSerde<ValueTimestampHeaders<V>, Void, V> {
     public ValueTimestampHeadersSerde(final Serde<V> valueSerde) {
         super(
