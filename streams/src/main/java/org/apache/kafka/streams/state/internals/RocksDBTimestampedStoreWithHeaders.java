@@ -34,10 +34,6 @@ import java.util.List;
 
 /**
  * A persistent key-(value-timestamp-headers) store based on RocksDB.
- *
- * This is analogous to {@link RocksDBTimestampedStore}, but the "new" column family stores
- * a header-aware format. Legacy values (without headers) are converted on the fly using
- * {@link HeadersBytesStore#convertToHeaderFormat(byte[])}.
  */
 public class RocksDBTimestampedStoreWithHeaders extends RocksDBStore implements HeadersBytesStore {
 
@@ -93,17 +89,16 @@ public class RocksDBTimestampedStoreWithHeaders extends RocksDBStore implements 
                                               final ColumnFamilyOptions columnFamilyOptions) {
         final List<ColumnFamilyHandle> columnFamilies = openRocksDB(
             dbOptions,
+            // we have to open the default CF to be able to open the legacy CF, but we won't use it
             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, columnFamilyOptions),
             new ColumnFamilyDescriptor(LEGACY_TIMESTAMPED_CF_NAME, columnFamilyOptions),
             new ColumnFamilyDescriptor(TIMESTAMPED_VALUES_WITH_HEADERS_CF_NAME, columnFamilyOptions)
         );
+        // Close unused default CF
+        columnFamilies.get(0).close();
 
-        final ColumnFamilyHandle defaultCf = columnFamilies.get(0);
         final ColumnFamilyHandle legacyCf = columnFamilies.get(1);
         final ColumnFamilyHandle headersCf = columnFamilies.get(2);
-
-        // Close unused default CF
-        defaultCf.close();
 
         // Check if legacy CF has data
         final RocksIterator legacyIter = db.newIterator(legacyCf);
@@ -131,6 +126,7 @@ public class RocksDBTimestampedStoreWithHeaders extends RocksDBStore implements 
                               final ColumnFamilyOptions columnFamilyOptions) {
         final List<ColumnFamilyHandle> columnFamilies = openRocksDB(
             dbOptions,
+            // we have to open the default CF to be able to open the legacy CF, but we won't use it
             new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, columnFamilyOptions),
             new ColumnFamilyDescriptor(TIMESTAMPED_VALUES_WITH_HEADERS_CF_NAME, columnFamilyOptions)
         );
@@ -138,7 +134,7 @@ public class RocksDBTimestampedStoreWithHeaders extends RocksDBStore implements 
         // Close unused default CF
         columnFamilies.get(0).close();
         final ColumnFamilyHandle headersCf = columnFamilies.get(1);
-        log.info("Opening store {} in regular header-aware mode", name);
+        log.info("Opening store {} in regular headers-aware mode", name);
         cfAccessor = new SingleColumnFamilyAccessor(headersCf);
     }
 
