@@ -60,6 +60,17 @@ public class TimestampedKeyValueStoreUpgradeTest {
   @TempDir
   File stateDir;
 
+//  @Test
+//  public void myTest() throws Exception {
+//    RecordHeaders headers = new RecordHeaders();
+//    headers.add("header-key", "header-value".getBytes());
+//    final HeadersSerializer serializer = new HeadersSerializer();
+//    final byte[] bytes = serializer.serialize(null, headers);
+//    ValueTimestampHeadersSerializer serializer2 = new ValueTimestampHeadersSerializer(Serdes.String().serializer());
+//    ValueTimestampHeaders<String> valueTimestampHeaders = ValueTimestampHeaders.make("value", 97L, headers);
+//    byte[] res = serializer2.serialize("topic", valueTimestampHeaders);
+//    System.out.println(res);
+//  }
   @Test
   public void shouldUpgradeFromTimestampedStoreToTimestampedStoreWithHeaders() throws Exception {
     final String storeName = "upgrade-test-store";
