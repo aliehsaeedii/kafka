@@ -49,7 +49,8 @@ import org.apache.kafka.streams.state.WindowStore;
 import org.apache.kafka.streams.test.TestRecord;
 import org.apache.kafka.test.TestUtils;
 
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Duration;
 import java.util.Comparator;
@@ -76,12 +77,20 @@ public class SuppressScenarioTest {
     private static final StringSerializer STRING_SERIALIZER = new StringSerializer();
     private static final Serde<String> STRING_SERDE = Serdes.String();
     private static final LongDeserializer LONG_DESERIALIZER = new LongDeserializer();
-    private final Properties config = Utils.mkProperties(Utils.mkMap(
-        Utils.mkEntry(StreamsConfig.STATE_DIR_CONFIG, TestUtils.tempDirectory().getPath())
-    ));
 
-    @Test
-    public void shouldImmediatelyEmitEventsWithZeroEmitAfter() {
+    private Properties config(final boolean withHeaders) {
+        final Properties props = Utils.mkProperties(Utils.mkMap(
+            Utils.mkEntry(StreamsConfig.STATE_DIR_CONFIG, TestUtils.tempDirectory().getPath())
+        ));
+        if (withHeaders) {
+            props.put(StreamsConfig.DSL_STORE_FORMAT_CONFIG, StreamsConfig.DSL_STORE_FORMAT_HEADERS);
+        }
+        return props;
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void shouldImmediatelyEmitEventsWithZeroEmitAfter(final boolean withHeaders) {
         final StreamsBuilder builder = new StreamsBuilder();
 
         final KTable<String, Long> valueCounts = builder
@@ -106,7 +115,7 @@ public class SuppressScenarioTest {
 
         final Topology topology = builder.build();
 
-        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config)) {
+        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config(withHeaders))) {
             final TestInputTopic<String, String> inputTopic =
                     driver.createInputTopic("input", STRING_SERIALIZER, STRING_SERIALIZER);
             inputTopic.pipeInput("k1", "v1", 0L);
@@ -161,8 +170,9 @@ public class SuppressScenarioTest {
         }
     }
 
-    @Test
-    public void shouldSuppressIntermediateEventsWithTimeLimit() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void shouldSuppressIntermediateEventsWithTimeLimit(final boolean withHeaders) {
         final StreamsBuilder builder = new StreamsBuilder();
         final KTable<String, Long> valueCounts = builder
             .table(
@@ -182,7 +192,7 @@ public class SuppressScenarioTest {
             .toStream()
             .to("output-raw", Produced.with(STRING_SERDE, Serdes.Long()));
         final Topology topology = builder.build();
-        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config)) {
+        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config(withHeaders))) {
             final TestInputTopic<String, String> inputTopic =
                     driver.createInputTopic("input", STRING_SERIALIZER, STRING_SERIALIZER);
             inputTopic.pipeInput("k1", "v1", 0L);
@@ -230,8 +240,9 @@ public class SuppressScenarioTest {
         }
     }
 
-    @Test
-    public void shouldSuppressIntermediateEventsWithRecordLimit() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void shouldSuppressIntermediateEventsWithRecordLimit(final boolean withHeaders) {
         final StreamsBuilder builder = new StreamsBuilder();
         final KTable<String, Long> valueCounts = builder
             .table(
@@ -252,7 +263,7 @@ public class SuppressScenarioTest {
             .to("output-raw", Produced.with(STRING_SERDE, Serdes.Long()));
         final Topology topology = builder.build();
         System.out.println(topology.describe());
-        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config)) {
+        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config(withHeaders))) {
             final TestInputTopic<String, String> inputTopic =
                     driver.createInputTopic("input", STRING_SERIALIZER, STRING_SERIALIZER);
             inputTopic.pipeInput("k1", "v1", 0L);
@@ -293,8 +304,9 @@ public class SuppressScenarioTest {
         }
     }
 
-    @Test
-    public void shouldSuppressIntermediateEventsWithBytesLimit() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void shouldSuppressIntermediateEventsWithBytesLimit(final boolean withHeaders) {
         final StreamsBuilder builder = new StreamsBuilder();
         final KTable<String, Long> valueCounts = builder
             .table(
@@ -316,7 +328,7 @@ public class SuppressScenarioTest {
             .to("output-raw", Produced.with(STRING_SERDE, Serdes.Long()));
         final Topology topology = builder.build();
         System.out.println(topology.describe());
-        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config)) {
+        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config(withHeaders))) {
             final TestInputTopic<String, String> inputTopic =
                     driver.createInputTopic("input", STRING_SERIALIZER, STRING_SERIALIZER);
             inputTopic.pipeInput("k1", "v1", 0L);
@@ -357,8 +369,9 @@ public class SuppressScenarioTest {
         }
     }
 
-    @Test
-    public void shouldSupportFinalResultsForTimeWindows() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void shouldSupportFinalResultsForTimeWindows(final boolean withHeaders) {
         final StreamsBuilder builder = new StreamsBuilder();
         final KTable<Windowed<String>, Long> valueCounts = builder
             .stream("input", Consumed.with(STRING_SERDE, STRING_SERDE))
@@ -376,7 +389,7 @@ public class SuppressScenarioTest {
             .to("output-raw", Produced.with(STRING_SERDE, Serdes.Long()));
         final Topology topology = builder.build();
         System.out.println(topology.describe());
-        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config)) {
+        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config(withHeaders))) {
             final TestInputTopic<String, String> inputTopic =
                     driver.createInputTopic("input", STRING_SERIALIZER, STRING_SERIALIZER);
             inputTopic.pipeInput("k1", "v1", 0L);
@@ -408,8 +421,9 @@ public class SuppressScenarioTest {
         }
     }
 
-    @Test
-    public void shouldSupportFinalResultsForTimeWindowsWithLargeJump() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void shouldSupportFinalResultsForTimeWindowsWithLargeJump(final boolean withHeaders) {
         final StreamsBuilder builder = new StreamsBuilder();
         final KTable<Windowed<String>, Long> valueCounts = builder
             .stream("input", Consumed.with(STRING_SERDE, STRING_SERDE))
@@ -427,7 +441,7 @@ public class SuppressScenarioTest {
             .to("output-raw", Produced.with(STRING_SERDE, Serdes.Long()));
         final Topology topology = builder.build();
         System.out.println(topology.describe());
-        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config)) {
+        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config(withHeaders))) {
             final TestInputTopic<String, String> inputTopic =
                     driver.createInputTopic("input", STRING_SERIALIZER, STRING_SERIALIZER);
             inputTopic.pipeInput("k1", "v1", 0L);
@@ -464,8 +478,9 @@ public class SuppressScenarioTest {
         }
     }
 
-    @Test
-    public void shouldSupportFinalResultsForSlidingWindows() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void shouldSupportFinalResultsForSlidingWindows(final boolean withHeaders) {
         final StreamsBuilder builder = new StreamsBuilder();
         final KTable<Windowed<String>, Long> valueCounts = builder
                 .stream("input", Consumed.with(STRING_SERDE, STRING_SERDE))
@@ -483,7 +498,7 @@ public class SuppressScenarioTest {
                 .to("output-raw", Produced.with(STRING_SERDE, Serdes.Long()));
         final Topology topology = builder.build();
         System.out.println(topology.describe());
-        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config)) {
+        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config(withHeaders))) {
             final TestInputTopic<String, String> inputTopic =
                     driver.createInputTopic("input", STRING_SERIALIZER, STRING_SERIALIZER);
             inputTopic.pipeInput("k1", "v1", 10L);
@@ -554,8 +569,9 @@ public class SuppressScenarioTest {
         }
     }
 
-    @Test
-    public void shouldSupportFinalResultsForSessionWindows() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void shouldSupportFinalResultsForSessionWindows(final boolean withHeaders) {
         final StreamsBuilder builder = new StreamsBuilder();
         final KTable<Windowed<String>, Long> valueCounts = builder
             .stream("input", Consumed.with(STRING_SERDE, STRING_SERDE))
@@ -573,7 +589,7 @@ public class SuppressScenarioTest {
             .to("output-raw", Produced.with(STRING_SERDE, Serdes.Long()));
         final Topology topology = builder.build();
         System.out.println(topology.describe());
-        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config)) {
+        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config(withHeaders))) {
             final TestInputTopic<String, String> inputTopic =
                     driver.createInputTopic("input", STRING_SERIALIZER, STRING_SERIALIZER);
             // first window
@@ -609,8 +625,9 @@ public class SuppressScenarioTest {
         }
     }
 
-    @Test
-    public void shouldWorkBeforeGroupBy() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void shouldWorkBeforeGroupBy(final boolean withHeaders) {
         final StreamsBuilder builder = new StreamsBuilder();
 
         builder
@@ -621,7 +638,7 @@ public class SuppressScenarioTest {
             .toStream()
             .to("output", Produced.with(Serdes.String(), Serdes.Long()));
 
-        try (final TopologyTestDriver driver = new TopologyTestDriver(builder.build(), config)) {
+        try (final TopologyTestDriver driver = new TopologyTestDriver(builder.build(), config(withHeaders))) {
             final TestInputTopic<String, String> inputTopic =
                 driver.createInputTopic("topic", STRING_SERIALIZER, STRING_SERIALIZER);
 
@@ -635,8 +652,9 @@ public class SuppressScenarioTest {
         }
     }
 
-    @Test
-    public void shouldWorkBeforeJoinRight() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void shouldWorkBeforeJoinRight(final boolean withHeaders) {
         final StreamsBuilder builder = new StreamsBuilder();
 
         final KTable<String, String> left = builder
@@ -651,7 +669,7 @@ public class SuppressScenarioTest {
             .toStream()
             .to("output", Produced.with(Serdes.String(), Serdes.String()));
 
-        try (final TopologyTestDriver driver = new TopologyTestDriver(builder.build(), config)) {
+        try (final TopologyTestDriver driver = new TopologyTestDriver(builder.build(), config(withHeaders))) {
             final TestInputTopic<String, String> inputTopicRight =
                 driver.createInputTopic("right", STRING_SERIALIZER, STRING_SERIALIZER);
             final TestInputTopic<String, String> inputTopicLeft =
@@ -722,8 +740,9 @@ public class SuppressScenarioTest {
     }
 
 
-    @Test
-    public void shouldWorkBeforeJoinLeft() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void shouldWorkBeforeJoinLeft(final boolean withHeaders) {
         final StreamsBuilder builder = new StreamsBuilder();
 
         final KTable<String, String> left = builder
@@ -739,7 +758,7 @@ public class SuppressScenarioTest {
             .to("output", Produced.with(Serdes.String(), Serdes.String()));
 
         final Topology topology = builder.build();
-        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config)) {
+        try (final TopologyTestDriver driver = new TopologyTestDriver(topology, config(withHeaders))) {
             final TestInputTopic<String, String> inputTopicRight =
                 driver.createInputTopic("right", STRING_SERIALIZER, STRING_SERIALIZER);
             final TestInputTopic<String, String> inputTopicLeft =
@@ -809,8 +828,9 @@ public class SuppressScenarioTest {
 
     }
 
-    @Test
-    public void shouldWorkWithCogroupedTimeWindows() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void shouldWorkWithCogroupedTimeWindows(final boolean withHeaders) {
         final StreamsBuilder builder = new StreamsBuilder();
 
         final KGroupedStream<String, String> stream1 = builder.stream("one", Consumed.with(Serdes.String(), Serdes.String())).groupByKey(Grouped.with(Serdes.String(), Serdes.String()));
@@ -822,8 +842,9 @@ public class SuppressScenarioTest {
             .toStream();
     }
 
-    @Test
-    public void shouldWorkWithCogroupedSlidingWindows() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void shouldWorkWithCogroupedSlidingWindows(final boolean withHeaders) {
         final StreamsBuilder builder = new StreamsBuilder();
 
         final KGroupedStream<String, String> stream1 = builder.stream("one", Consumed.with(Serdes.String(), Serdes.String())).groupByKey(Grouped.with(Serdes.String(), Serdes.String()));
@@ -835,8 +856,9 @@ public class SuppressScenarioTest {
             .toStream();
     }
 
-    @Test
-    public void shouldWorkWithCogroupedSessionWindows() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void shouldWorkWithCogroupedSessionWindows(final boolean withHeaders) {
         final StreamsBuilder builder = new StreamsBuilder();
 
         final KGroupedStream<String, String> stream1 = builder.stream("one", Consumed.with(Serdes.String(), Serdes.String())).groupByKey(Grouped.with(Serdes.String(), Serdes.String()));

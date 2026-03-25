@@ -2798,8 +2798,10 @@ project(':streams') {
     dependsOn 'copyDependantLibs'
   }
 
+  // Don't include streams test jar in systemTestLibs to avoid classpath conflicts
+  // with upgrade-system-tests-* modules that have their own StreamsUpgradeTest class
   systemTestLibs {
-    dependsOn testJar
+    dependsOn jar
   }
 
   task genStreamsConfigDocs(type: JavaExec) {
