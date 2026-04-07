@@ -663,4 +663,72 @@ public class MeteredTimestampedKeyValueStoreWithHeadersTest {
         // The critical verification: key deserializer must have been called with HEADERS (not empty headers)
         verify(keyDeserializer).deserialize(any(), eq(HEADERS), eq(KEY.getBytes()));
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void shouldInjectHeadersIntoPrefixSerializerInPrefixScan() {
+        final String prefix = "test-prefix";
+        final byte[] prefixBytes = prefix.getBytes();
+        final RecordHeaders contextHeaders = new RecordHeaders();
+        contextHeaders.add("context-key", "context-value".getBytes());
+
+        // Set up fresh mocks and context
+        setUpWithoutContext();
+
+        // Set up context with test headers from both headers() and recordContext()
+        when(context.applicationId()).thenReturn(APPLICATION_ID);
+        when(context.metrics()).thenReturn(new StreamsMetricsImpl(metrics, "test", mockTime));
+        when(context.taskId()).thenReturn(taskId);
+        when(context.changelogFor(STORE_NAME)).thenReturn(CHANGELOG_TOPIC);
+        when(context.appConfigs()).thenReturn(CONFIGS);
+        when(inner.name()).thenReturn(STORE_NAME);
+        when(context.headers()).thenReturn(contextHeaders);
+        lenient().when(context.recordContext()).thenReturn(
+            new org.apache.kafka.streams.processor.internals.ProcessorRecordContext(
+                0L, 0L, 0, "topic", contextHeaders
+            )
+        );
+        lenient().when(context.keySerde()).thenReturn((Serde) Serdes.String());
+        lenient().when(context.valueSerde()).thenReturn((Serde) Serdes.Long());
+
+        // Mock the prefix serializer to capture what headers it receives
+        final Serializer<String> mockPrefixSerializer = mock(Serializer.class);
+        when(mockPrefixSerializer.serialize(any(), any(RecordHeaders.class), eq(prefix)))
+            .thenReturn(prefixBytes);
+
+        // Capture the serializer that gets passed to the inner store
+        final org.mockito.ArgumentCaptor<Serializer<String>> serializerCaptor =
+            org.mockito.ArgumentCaptor.forClass(Serializer.class);
+
+        // Mock the inner store to return empty iterator
+        when(inner.prefixScan(eq(prefix), serializerCaptor.capture()))
+            .thenReturn(KeyValueIterators.emptyIterator());
+
+        // Initialize the metered store directly without using helper
+        metered = new MeteredTimestampedKeyValueStoreWithHeaders<>(
+            inner,
+            STORE_TYPE,
+            mockTime,
+            Serdes.String(),
+            new ValueTimestampHeadersSerde<>(Serdes.String())
+        );
+        metered.init(context, metered);
+
+        // Call prefixScan with the mock serializer
+        try (final KeyValueIterator<String, ValueTimestampHeaders<String>> iterator =
+                metered.prefixScan(prefix, mockPrefixSerializer)) {
+            assertFalse(iterator.hasNext());
+        }
+
+        // Verify that a wrapped serializer was passed to the inner store
+        final Serializer<String> capturedSerializer = serializerCaptor.getValue();
+        assertNotNull(capturedSerializer, "Serializer should have been passed to inner store");
+
+        // Now invoke the captured (wrapped) serializer to verify it injects headers
+        capturedSerializer.serialize("test-topic", prefix);
+
+        // The critical verification: the original mock serializer must have been called
+        // with the context headers (not empty headers), proving HeadersInjectingSerializer works
+        verify(mockPrefixSerializer).serialize(eq("test-topic"), eq(contextHeaders), eq(prefix));
+    }
 }

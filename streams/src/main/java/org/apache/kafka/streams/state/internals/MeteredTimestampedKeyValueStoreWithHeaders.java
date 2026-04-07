@@ -467,8 +467,15 @@ public class MeteredTimestampedKeyValueStoreWithHeaders<K, V>
                                                                                                   final PS prefixKeySerializer) {
         Objects.requireNonNull(prefix, "prefix cannot be null");
         Objects.requireNonNull(prefixKeySerializer, "prefixKeySerializer cannot be null");
+
+        // Wrap the user-provided serializer to inject headers
+        final Serializer<P> headersAwareSerializer = new HeadersInjectingSerializer<>(
+            prefixKeySerializer,
+            internalContext.headers()
+        );
+
         return new MeteredTimestampedKeyValueStoreWithHeadersIterator(
-            wrapped().prefixScan(prefix, prefixKeySerializer),
+            wrapped().prefixScan(prefix, headersAwareSerializer),
             prefixScanSensor
         );
     }
@@ -675,5 +682,40 @@ public class MeteredTimestampedKeyValueStoreWithHeaders<K, V>
 
     private K deserializeKey(final byte[] rawKey, final Headers headers) {
         return serdes.keyFrom(rawKey, headers);
+    }
+
+    /**
+     * Helper serializer that wraps a user-provided serializer and injects headers
+     * into the serialization process. This ensures headers are properly propagated
+     * through operations like prefixScan() that accept custom serializers.
+     */
+    private static class HeadersInjectingSerializer<T> implements Serializer<T> {
+        private final Serializer<T> delegate;
+        private final Headers headers;
+
+        HeadersInjectingSerializer(final Serializer<T> delegate, final Headers headers) {
+            this.delegate = delegate;
+            this.headers = headers;
+        }
+
+        @Override
+        public byte[] serialize(final String topic, final T data) {
+            return delegate.serialize(topic, headers, data);
+        }
+
+        @Override
+        public byte[] serialize(final String topic, final Headers headers, final T data) {
+            return delegate.serialize(topic, headers, data);
+        }
+
+        @Override
+        public void configure(final Map<String, ?> configs, final boolean isKey) {
+            delegate.configure(configs, isKey);
+        }
+
+        @Override
+        public void close() {
+            // Don't close the delegate - caller owns its lifecycle
+        }
     }
 }
