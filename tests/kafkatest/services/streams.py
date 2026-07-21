@@ -34,6 +34,7 @@ class StreamsTestBaseService(KafkaPathResolverMixin, JmxMixin, Service):
     PERSISTENT_ROOT = "/mnt/streams"
 
     # The log file contains normal log4j logs written using a file appender. stdout and stderr are handled separately
+    // wewe
     CONFIG_FILE = os.path.join(PERSISTENT_ROOT, "streams.properties")
     LOG_FILE = os.path.join(PERSISTENT_ROOT, "streams.log")
     STDOUT_FILE = os.path.join(PERSISTENT_ROOT, "streams.stdout")
